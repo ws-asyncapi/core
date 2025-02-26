@@ -14,9 +14,9 @@
     "type": "module",
     "devDependencies": {
         "@biomejs/biome": "^1.9.4",
-        "@types/bun": "latest",
-        "pkgroll": "^2.6.1",
-        "typescript": "^5.0.0"
+        "@types/bun": "^1.2.4",
+        "pkgroll": "^2.11.2",
+        "typescript": "^5.7.3"
     },
     "scripts": {
         "prepublishOnly": "bunx pkgroll"

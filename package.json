@@ -22,5 +22,9 @@
         "prepublishOnly": "bunx pkgroll"
     },
     "files": ["dist"],
-    "license": "MIT"
+    "license": "MIT",
+    "dependencies": {
+        "asyncapi-types": "^3.0.0",
+        "typebox": "^0.0.1"
+    }
 }

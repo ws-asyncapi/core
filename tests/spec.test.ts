@@ -27,6 +27,7 @@ describe("AsyncAPI", () => {
               "title": "AsyncAPI",
               "version": "1.0.0",
             },
+            "operations": {},
             "servers": {
               "production": {
                 "host": "api.example.com",
@@ -34,6 +35,7 @@ describe("AsyncAPI", () => {
                 "protocol": "wss",
               },
             },
+            "x-ws-asyncapi": true,
           }
         `);
     });

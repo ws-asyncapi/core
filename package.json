@@ -16,7 +16,7 @@
         "@biomejs/biome": "^1.9.4",
         "@types/bun": "^1.2.4",
         "pkgroll": "^2.11.2",
-        "typescript": "^5.7.3"
+        "typescript": "^5.8.2"
     },
     "scripts": {
         "prepublishOnly": "bunx pkgroll"
@@ -24,7 +24,7 @@
     "files": ["dist"],
     "license": "MIT",
     "dependencies": {
-        "asyncapi-types": "^3.0.0",
+        "asyncapi-types": "^3.0.1",
         "typebox": "^0.0.1"
     }
 }

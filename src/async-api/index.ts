@@ -1,7 +1,11 @@
 import type { AsyncAPIObject } from "asyncapi-types";
 
-export function getAsyncApiDocument(instance: never, schema: Partial<AsyncAPIObject>): AsyncAPIObject {
+export function getAsyncApiDocument(
+    instance: never,
+    schema: Partial<AsyncAPIObject>,
+): AsyncAPIObject {
     return {
+        "x-ws-asyncapi": true,
         asyncapi: "3.0.0",
         info: {
             title: "AsyncAPI",
@@ -17,6 +21,9 @@ export function getAsyncApiDocument(instance: never, schema: Partial<AsyncAPIObj
         },
         components: {
             ...schema.components,
+        },
+        operations: {
+            ...schema.operations,
         },
         ...schema,
     };

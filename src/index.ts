@@ -1,16 +1,19 @@
 import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
 import type { ChannelObject, SchemaObject } from "asyncapi-types";
 
-type MessageHandler = (message: any) => void;
+type MessageHandler = (message: unknown) => void;
 interface MessageHandlerSchema {
     handler: MessageHandler;
     validation?: TSchema;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
+export type AnyChannel = Channel<any, any>;
+
 // TODO: maybe use `defineOperation`
 export class Channel<
-    Query extends any | undefined,
-    Headers extends any | undefined,
+    Query extends unknown | undefined,
+    Headers extends unknown | undefined,
 > {
     public "~" = {
         client: new Map<string, MessageHandlerSchema>(),

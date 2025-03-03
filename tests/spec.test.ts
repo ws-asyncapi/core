@@ -42,7 +42,7 @@ describe("AsyncAPI", () => {
     });
 
     it("Simple channel", () => {
-        const channel = new Channel("/test").query(
+        const channel = new Channel("/test/:id").query(
             Type.Object({
                 id: Type.String(),
             }),
@@ -50,15 +50,17 @@ describe("AsyncAPI", () => {
 
         const document = getAsyncApiDocument([channel], {});
 
+        console.log(JSON.stringify(document, null, 2));
+
         expect(document).toMatchInlineSnapshot(`
           {
             "asyncapi": "3.0.0",
             "channels": {
-              "/test": {
-                "address": "/test",
+              "/test/:id": {
+                "address": "/test/:id",
                 "bindings": {
                   "ws": {
-                    "headers": undefined,
+                    "bindingVersion": "latest",
                     "query": {
                       [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
@@ -72,6 +74,13 @@ describe("AsyncAPI", () => {
                       ],
                       "type": "object",
                     },
+                    "x-parameters": [
+                      {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                      },
+                    ],
                   },
                 },
               },

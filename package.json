@@ -24,7 +24,8 @@
     "files": ["dist"],
     "license": "MIT",
     "dependencies": {
-        "asyncapi-types": "^3.0.1",
+        "@sinclair/typebox": "^0.34.28",
+        "asyncapi-types": "3.0.2",
         "typebox": "^0.0.1"
     }
 }

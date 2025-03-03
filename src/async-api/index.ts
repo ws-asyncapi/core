@@ -1,9 +1,24 @@
-import type { AsyncAPIObject } from "asyncapi-types";
+import type { AsyncAPIObject, ChannelsObject } from "asyncapi-types";
+import type { Channel } from "../index.ts";
 
 export function getAsyncApiDocument(
-    instance: never,
+    channelsRaw: Channel[],
     schema: Partial<AsyncAPIObject>,
 ): AsyncAPIObject {
+    const channels: ChannelsObject = {};
+
+    for (const channel of channelsRaw) {
+        channels[channel.address] = {
+            address: channel.address,
+            bindings: {
+                ws: {
+                    query: channel["~"].query,
+                    headers: channel["~"].headers,
+                },
+            },
+        };
+    }
+
     return {
         "x-ws-asyncapi": true,
         asyncapi: "3.0.0",
@@ -17,6 +32,7 @@ export function getAsyncApiDocument(
             ...schema.servers,
         },
         channels: {
+            ...channels,
             ...schema.channels,
         },
         components: {
@@ -25,6 +41,7 @@ export function getAsyncApiDocument(
         operations: {
             ...schema.operations,
         },
+
         ...schema,
     };
 }

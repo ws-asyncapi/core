@@ -8,7 +8,10 @@ interface MessageHandlerSchema {
 }
 
 // TODO: maybe use `defineOperation`
-export class Channel {
+export class Channel<
+    Query extends TObject | undefined,
+    Headers extends TObject | undefined,
+> {
     public "~" = {
         client: new Map<string, MessageHandlerSchema>(),
         server: new Map<string, TSchema>(),
@@ -20,13 +23,17 @@ export class Channel {
         public schema: ChannelObject = {},
     ) {}
 
-    query(query: TObject) {
+    query<QueryObject extends TObject>(
+        query: QueryObject,
+    ): Channel<QueryObject, Headers> {
         this["~"].query = query;
 
         return this;
     }
 
-    headers(headers: TObject) {
+    headers<HeadersObject extends TObject>(
+        headers: HeadersObject,
+    ): Channel<Query, HeadersObject> {
         this["~"].headers = headers;
 
         return this;

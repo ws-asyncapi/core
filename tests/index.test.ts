@@ -41,7 +41,11 @@ describe("Channel", () => {
     });
 
     it("should allow headers in a channel", () => {
-        const channel = new Channel("/test/:id").headers(Type.Object({}));
+        const channel = new Channel("/test/:id").headers(
+            Type.Object({
+                test: Type.String(),
+            }),
+        );
 
         expect(channel["~"].headers).toBeDefined();
     });

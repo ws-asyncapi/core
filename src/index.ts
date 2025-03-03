@@ -1,4 +1,4 @@
-import type { TObject, TSchema, Type } from "@sinclair/typebox";
+import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
 import type { ChannelObject, SchemaObject } from "asyncapi-types";
 
 type MessageHandler = (message: any) => void;
@@ -9,8 +9,8 @@ interface MessageHandlerSchema {
 
 // TODO: maybe use `defineOperation`
 export class Channel<
-    Query extends TObject | undefined,
-    Headers extends TObject | undefined,
+    Query extends any | undefined,
+    Headers extends any | undefined,
 > {
     public "~" = {
         client: new Map<string, MessageHandlerSchema>(),
@@ -25,7 +25,7 @@ export class Channel<
 
     query<QueryObject extends TObject>(
         query: QueryObject,
-    ): Channel<QueryObject, Headers> {
+    ): Channel<Static<QueryObject>, Headers> {
         this["~"].query = query;
 
         return this;
@@ -33,7 +33,7 @@ export class Channel<
 
     headers<HeadersObject extends TObject>(
         headers: HeadersObject,
-    ): Channel<Query, HeadersObject> {
+    ): Channel<Query, Static<HeadersObject>> {
         this["~"].headers = headers;
 
         return this;

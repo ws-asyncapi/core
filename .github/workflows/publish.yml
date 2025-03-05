@@ -29,7 +29,7 @@ jobs:
                   fetch-depth: 0
 
             - name: Install Bun
-              uses: oven-sh/setup-bun@v1
+              uses: oven-sh/setup-bun@v2
 
             - id: changelog
               name: Generate changelog
@@ -55,12 +55,12 @@ jobs:
             # - name: Run publint
             #   run: bunx publint
 
-            - name: Setup Deno
-              uses: denoland/setup-deno@v1
+            # - name: Setup Deno
+              # uses: denoland/setup-deno@v1
 
             # - name: Publish package to JSR
-            #   if: ${{ github.event.inputs.publish_to_jsr }}
-            #   run: deno publish --allow-dirty --unstable-sloppy-imports
+              # if: ${{ github.event.inputs.publish_to_jsr }}
+              # run: deno publish --allow-dirty --unstable-sloppy-imports
 
             # - name: Install Node
             #   uses: actions/setup-node@v4

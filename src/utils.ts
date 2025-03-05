@@ -18,3 +18,5 @@ declare module "asyncapi-types" {
         "x-parameters"?: ParameterObject[];
     }
 }
+
+// ~1 is /

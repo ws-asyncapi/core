@@ -97,4 +97,102 @@ describe("AsyncAPI", () => {
           }
         `);
     });
+
+    it("Channel with server and client message", () => {
+        const channel = new Channel("/test/:id")
+            .query(
+                Type.Object({
+                    id: Type.String(),
+                }),
+            )
+            .serverMessage(
+                "test",
+                Type.Object({
+                    id: Type.String(),
+                }),
+            )
+            .clientMessage("test-really", (message) => {
+                console.log(message);
+            });
+
+        const document = getAsyncApiDocument([channel], {});
+
+        console.log(JSON.stringify(document, null, 2));
+
+        expect(document).toMatchInlineSnapshot(`
+          {
+            "asyncapi": "3.0.0",
+            "channels": {
+              "/test/:id": {
+                "address": "/test/:id",
+                "bindings": {
+                  "ws": {
+                    "bindingVersion": "latest",
+                    "query": {
+                      [Symbol(TypeBox.Kind)]: "Object",
+                      "properties": {
+                        "id": {
+                          [Symbol(TypeBox.Kind)]: "String",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                      ],
+                      "type": "object",
+                    },
+                    "x-parameters": [
+                      {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            "components": {},
+            "info": {
+              "description": "AsyncAPI",
+              "title": "AsyncAPI",
+              "version": "1.0.0",
+            },
+            "operations": {
+              "/test/:id-test": {
+                "action": "send",
+                "channel": {
+                  "$ref": "#/channels//test/:id",
+                },
+                "messages": [
+                  {
+                    "payload": {
+                      [Symbol(TypeBox.Kind)]: "Object",
+                      "properties": {
+                        "id": {
+                          [Symbol(TypeBox.Kind)]: "String",
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "id",
+                      ],
+                      "type": "object",
+                    },
+                  },
+                ],
+              },
+              "/test/:id-test-really": {
+                "action": "receive",
+                "channel": {
+                  "$ref": "#/channels//test/:id",
+                },
+                "messages": [],
+              },
+            },
+            "servers": {},
+            "x-ws-asyncapi": true,
+          }
+        `);
+    });
 });

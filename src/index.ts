@@ -1,7 +1,7 @@
 import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
 import type { ChannelObject, SchemaObject } from "asyncapi-types";
 
-type MessageHandler = (message: unknown) => void;
+type MessageHandler = (data: { ws: any; message: any }) => void;
 interface MessageHandlerSchema {
     handler: MessageHandler;
     validation?: TSchema;

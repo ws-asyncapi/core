@@ -4,9 +4,12 @@ import type { MaybePromise } from "./utils.ts";
 
 export * from "./async-api/index.ts";
 
-type MessageHandler = (data: { ws: any; message: any }) => MaybePromise<void>;
-interface MessageHandlerSchema {
-    handler: MessageHandler;
+type MessageHandler<Message> = (data: {
+    ws: any;
+    message: Message;
+}) => MaybePromise<void>;
+interface MessageHandlerSchema<Message> {
+    handler: MessageHandler<Message>;
     validation?: TSchema;
 }
 
@@ -19,7 +22,7 @@ export class Channel<
     Headers extends unknown | undefined,
 > {
     public "~" = {
-        client: new Map<string, MessageHandlerSchema>(),
+        client: new Map<string, MessageHandlerSchema<any>>(),
         server: new Map<string, TSchema>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
@@ -51,10 +54,10 @@ export class Channel<
         return this;
     }
 
-    clientMessage(
+    clientMessage<Validation extends TSchema, Message = Static<Validation>>(
         name: string,
-        handler: MessageHandler,
-        validation?: TSchema,
+        handler: MessageHandler<Message>,
+        validation?: Validation,
     ): this {
         this["~"].client.set(name, { handler, validation });
 

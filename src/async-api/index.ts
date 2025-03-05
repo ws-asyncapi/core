@@ -68,7 +68,6 @@ export function getAsyncApiDocument(
                         $ref: `#/channels/${channel.address}`,
                     },
                     messages: [
-                        // @ts-expect-error
                         { payload: toLibrarySpec(validation ?? Type.Any()) },
                     ],
                     "x-ws-asyncapi-operation": 1,

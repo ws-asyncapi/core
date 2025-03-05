@@ -1,4 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
 
 export function getPathParams(path: string) {
     return path
@@ -8,8 +9,7 @@ export function getPathParams(path: string) {
 }
 
 export function toLibrarySpec(data: TSchema) {
-    // @ts-expect-error
-    return t.Tuple([t.String(), data]);
+    return Type.Tuple([Type.String(), data]);
 }
 
 // !CUSTOM Type support for AsyncAPI

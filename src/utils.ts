@@ -1,8 +1,15 @@
+import type { TSchema } from "@sinclair/typebox";
+
 export function getPathParams(path: string) {
     return path
         .split("/")
         .filter((part) => part.startsWith(":"))
         .map((part) => part.slice(1));
+}
+
+export function toLibrarySpec(data: TSchema) {
+    // @ts-expect-error
+    return t.Tuple([t.String(), data]);
 }
 
 // !CUSTOM Type support for AsyncAPI
@@ -17,6 +24,10 @@ declare module "asyncapi-types" {
     interface WSBindingObject {
         "x-parameters"?: ParameterObject[];
     }
+    interface OperationObject {
+        "x-ws-asyncapi-operation": 1;
+    }
 }
 
 // ~1 is /
+export type MaybePromise<T> = T | Promise<T>;

@@ -1,7 +1,10 @@
 import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
 import type { ChannelObject, SchemaObject } from "asyncapi-types";
+import type { MaybePromise } from "./utils.ts";
 
-type MessageHandler = (data: { ws: any; message: any }) => void;
+export * from "./async-api/index.ts";
+
+type MessageHandler = (data: { ws: any; message: any }) => MaybePromise<void>;
 interface MessageHandlerSchema {
     handler: MessageHandler;
     validation?: TSchema;

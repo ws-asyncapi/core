@@ -12,6 +12,13 @@
         "name": "kravets"
     },
     "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+        }
+    },
     "devDependencies": {
         "@biomejs/biome": "^1.9.4",
         "@types/bun": "^1.2.4",
@@ -27,5 +34,8 @@
     "dependencies": {
         "@sinclair/typebox": "^0.34.28",
         "asyncapi-types": "3.0.2"
+    },
+    "overrides": {
+        "@sinclair/typebox": "0.34.28"
     }
 }

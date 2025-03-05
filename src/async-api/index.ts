@@ -1,3 +1,4 @@
+import { Type } from "@sinclair/typebox";
 import type {
     AsyncAPIObject,
     ChannelBindingsObject,
@@ -5,7 +6,7 @@ import type {
     OperationsObject,
 } from "asyncapi-types";
 import type { AnyChannel } from "../index.ts";
-import { getPathParams } from "../utils.ts";
+import { getPathParams, toLibrarySpec } from "../utils.ts";
 
 export function getAsyncApiDocument(
     channelsRaw: AnyChannel[],
@@ -51,7 +52,10 @@ export function getAsyncApiDocument(
                     channel: {
                         $ref: `#/channels/${channel.address}`,
                     },
-                    messages: validation ? [{ payload: validation }] : [],
+                    messages: validation
+                        ? [{ payload: toLibrarySpec(validation) }]
+                        : [],
+                    "x-ws-asyncapi-operation": 1,
                 };
             }
         }
@@ -63,7 +67,11 @@ export function getAsyncApiDocument(
                     channel: {
                         $ref: `#/channels/${channel.address}`,
                     },
-                    messages: validation ? [{ payload: validation }] : [],
+                    messages: [
+                        // @ts-expect-error
+                        { payload: toLibrarySpec(validation ?? Type.Any()) },
+                    ],
+                    "x-ws-asyncapi-operation": 1,
                 };
             }
         }

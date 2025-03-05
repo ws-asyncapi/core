@@ -8,22 +8,30 @@ export function getPathParams(path: string) {
         .map((part) => part.slice(1));
 }
 
+export function toChannelExpression(path: string) {
+    return path.replace(/:(\w+)/g, "{$1}");
+}
+
 export function toLibrarySpec(name: string, data: TSchema) {
     return Type.Tuple([Type.Literal(name), data]);
+}
+
+export function toPascalCase(str: string) {
+    return str.replace(/(?:^|_|-)(\w)/g, (_, char) => char.toUpperCase());
 }
 
 // !CUSTOM Type support for AsyncAPI
 // !Based on https://github.com/asyncapi/bindings/blob/master/websockets/README.md#channel
 declare module "asyncapi-types" {
-    interface ParameterObject {
-        name: string;
-        in: "path";
-        required: true;
-    }
+    // interface ParameterObject {
+    //     name: string;
+    //     in: "path";
+    //     required: true;
+    // }
 
-    interface WSBindingObject {
-        "x-parameters"?: ParameterObject[];
-    }
+    // interface WSBindingObject {
+    //     "x-parameters"?: ParameterObject[];
+    // }
     interface OperationObject {
         "x-ws-asyncapi-operation": 1;
     }

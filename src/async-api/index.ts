@@ -4,9 +4,15 @@ import type {
     ChannelBindingsObject,
     ChannelsObject,
     OperationsObject,
+    ParameterObject,
 } from "asyncapi-types";
 import type { AnyChannel } from "../index.ts";
-import { getPathParams, toLibrarySpec } from "../utils.ts";
+import {
+    getPathParams,
+    toChannelExpression,
+    toLibrarySpec,
+    toPascalCase,
+} from "../utils.ts";
 
 export function getAsyncApiDocument(
     channelsRaw: AnyChannel[],
@@ -20,6 +26,8 @@ export function getAsyncApiDocument(
             bindingVersion: "latest",
         };
 
+        const parameters: Record<string, ParameterObject> = {};
+
         if (channel["~"].query) {
             wsBinding.query = channel["~"].query;
         }
@@ -30,27 +38,32 @@ export function getAsyncApiDocument(
 
         const pathParams = getPathParams(channel.address);
 
-        if (pathParams.length > 0) {
-            wsBinding["x-parameters"] = pathParams.map((param) => ({
-                name: param,
-                in: "path",
-                required: true,
-            }));
+        // if (pathParams.length > 0) {
+        //     wsBinding["x-parameters"] = pathParams.map((param) => ({
+        //         name: param,
+        //         in: "path",
+        //         required: true,
+        //     }));
+        // }
+
+        for (const param of pathParams) {
+            parameters[param] = {};
         }
 
-        channels[channel.address] = {
-            address: channel.address,
+        channels[channel.name] = {
+            address: toChannelExpression(channel.address),
             bindings: {
                 ws: wsBinding,
             },
+            parameters,
         };
 
         if (channel["~"].server.size > 0) {
             for (const [name, validation] of channel["~"].server) {
-                operations[`${channel.address}-${name}`] = {
+                operations[toPascalCase(`${channel.name}_${name}`)] = {
                     action: "send",
                     channel: {
-                        $ref: `#/channels/${channel.address}`,
+                        $ref: `#/channels/${channel.name}`,
                     },
                     messages: validation
                         ? [{ payload: toLibrarySpec(name, validation) }]
@@ -62,10 +75,10 @@ export function getAsyncApiDocument(
 
         if (channel["~"].client.size > 0) {
             for (const [name, { validation }] of channel["~"].client) {
-                operations[`${channel.address}-${name}`] = {
+                operations[toPascalCase(`${channel.name}_${name}`)] = {
                     action: "receive",
                     channel: {
-                        $ref: `#/channels/${channel.address}`,
+                        $ref: `#/channels/${channel.name}`,
                     },
                     messages: [
                         {

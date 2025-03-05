@@ -29,6 +29,7 @@ export class Channel<
     };
     constructor(
         public address: `/${string}`,
+        public name: string,
         public schema: ChannelObject = {},
     ) {}
 

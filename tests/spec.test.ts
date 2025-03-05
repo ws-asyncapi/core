@@ -42,7 +42,7 @@ describe("AsyncAPI", () => {
     });
 
     it("Simple channel", () => {
-        const channel = new Channel("/test/:id").query(
+        const channel = new Channel("/test/:id", "test").query(
             Type.Object({
                 id: Type.String(),
             }),
@@ -56,8 +56,8 @@ describe("AsyncAPI", () => {
           {
             "asyncapi": "3.0.0",
             "channels": {
-              "/test/:id": {
-                "address": "/test/:id",
+              "test": {
+                "address": "/test/{id}",
                 "bindings": {
                   "ws": {
                     "bindingVersion": "latest",
@@ -74,14 +74,10 @@ describe("AsyncAPI", () => {
                       ],
                       "type": "object",
                     },
-                    "x-parameters": [
-                      {
-                        "in": "path",
-                        "name": "id",
-                        "required": true,
-                      },
-                    ],
                   },
+                },
+                "parameters": {
+                  "id": {},
                 },
               },
             },
@@ -99,7 +95,7 @@ describe("AsyncAPI", () => {
     });
 
     it("Channel with server and client message", () => {
-        const channel = new Channel("/test/:id")
+        const channel = new Channel("/test/:id", "test")
             .query(
                 Type.Object({
                     id: Type.String(),
@@ -123,8 +119,8 @@ describe("AsyncAPI", () => {
           {
             "asyncapi": "3.0.0",
             "channels": {
-              "/test/:id": {
-                "address": "/test/:id",
+              "test": {
+                "address": "/test/{id}",
                 "bindings": {
                   "ws": {
                     "bindingVersion": "latest",
@@ -141,14 +137,10 @@ describe("AsyncAPI", () => {
                       ],
                       "type": "object",
                     },
-                    "x-parameters": [
-                      {
-                        "in": "path",
-                        "name": "id",
-                        "required": true,
-                      },
-                    ],
                   },
+                },
+                "parameters": {
+                  "id": {},
                 },
               },
             },
@@ -159,10 +151,10 @@ describe("AsyncAPI", () => {
               "version": "1.0.0",
             },
             "operations": {
-              "/test/:id-test": {
+              "TestTest": {
                 "action": "send",
                 "channel": {
-                  "$ref": "#/channels//test/:id",
+                  "$ref": "#/channels/test",
                 },
                 "messages": [
                   {
@@ -197,10 +189,10 @@ describe("AsyncAPI", () => {
                 ],
                 "x-ws-asyncapi-operation": 1,
               },
-              "/test/:id-test-really": {
+              "TestTestReally": {
                 "action": "receive",
                 "channel": {
-                  "$ref": "#/channels//test/:id",
+                  "$ref": "#/channels/test",
                 },
                 "messages": [
                   {

@@ -53,7 +53,7 @@ export function getAsyncApiDocument(
                         $ref: `#/channels/${channel.address}`,
                     },
                     messages: validation
-                        ? [{ payload: toLibrarySpec(validation) }]
+                        ? [{ payload: toLibrarySpec(name, validation) }]
                         : [],
                     "x-ws-asyncapi-operation": 1,
                 };
@@ -68,7 +68,12 @@ export function getAsyncApiDocument(
                         $ref: `#/channels/${channel.address}`,
                     },
                     messages: [
-                        { payload: toLibrarySpec(validation ?? Type.Any()) },
+                        {
+                            payload: toLibrarySpec(
+                                name,
+                                validation ?? Type.Any(),
+                            ),
+                        },
                     ],
                     "x-ws-asyncapi-operation": 1,
                 };

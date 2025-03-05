@@ -167,27 +167,63 @@ describe("AsyncAPI", () => {
                 "messages": [
                   {
                     "payload": {
-                      [Symbol(TypeBox.Kind)]: "Object",
-                      "properties": {
-                        "id": {
-                          [Symbol(TypeBox.Kind)]: "String",
+                      [Symbol(TypeBox.Kind)]: "Tuple",
+                      "additionalItems": false,
+                      "items": [
+                        {
+                          [Symbol(TypeBox.Kind)]: "Literal",
+                          "const": "test",
                           "type": "string",
                         },
-                      },
-                      "required": [
-                        "id",
+                        {
+                          [Symbol(TypeBox.Kind)]: "Object",
+                          "properties": {
+                            "id": {
+                              [Symbol(TypeBox.Kind)]: "String",
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "id",
+                          ],
+                          "type": "object",
+                        },
                       ],
-                      "type": "object",
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "type": "array",
                     },
                   },
                 ],
+                "x-ws-asyncapi-operation": 1,
               },
               "/test/:id-test-really": {
                 "action": "receive",
                 "channel": {
                   "$ref": "#/channels//test/:id",
                 },
-                "messages": [],
+                "messages": [
+                  {
+                    "payload": {
+                      [Symbol(TypeBox.Kind)]: "Tuple",
+                      "additionalItems": false,
+                      "items": [
+                        {
+                          [Symbol(TypeBox.Kind)]: "Literal",
+                          "const": "test-really",
+                          "type": "string",
+                        },
+                        {
+                          [Symbol(TypeBox.Kind)]: "Any",
+                        },
+                      ],
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "type": "array",
+                    },
+                  },
+                ],
+                "x-ws-asyncapi-operation": 1,
               },
             },
             "servers": {},

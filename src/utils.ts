@@ -8,8 +8,8 @@ export function getPathParams(path: string) {
         .map((part) => part.slice(1));
 }
 
-export function toLibrarySpec(data: TSchema) {
-    return Type.Tuple([Type.String(), data]);
+export function toLibrarySpec(name: string, data: TSchema) {
+    return Type.Tuple([Type.Literal(name), data]);
 }
 
 // !CUSTOM Type support for AsyncAPI

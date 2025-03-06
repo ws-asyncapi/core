@@ -14,6 +14,8 @@ import {
     toPascalCase,
 } from "../utils.ts";
 
+export * from "./ui.ts";
+
 export function getAsyncApiDocument(
     channelsRaw: AnyChannel[],
     schema: Partial<AsyncAPIObject>,

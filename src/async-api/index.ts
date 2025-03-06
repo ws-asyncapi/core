@@ -3,6 +3,7 @@ import type {
     AsyncAPIObject,
     ChannelBindingsObject,
     ChannelsObject,
+    MessageObject,
     OperationsObject,
     ParameterObject,
 } from "asyncapi-types";
@@ -29,6 +30,7 @@ export function getAsyncApiDocument(
         };
 
         const parameters: Record<string, ParameterObject> = {};
+        const messages: Record<string, MessageObject> = {};
 
         if (channel["~"].query) {
             wsBinding.query = channel["~"].query;
@@ -68,10 +70,19 @@ export function getAsyncApiDocument(
                         $ref: `#/channels/${channel.name}`,
                     },
                     messages: validation
-                        ? [{ payload: toLibrarySpec(name, validation) }]
+                        ? [
+                              {
+                                  $ref: `#/channels/${channel.name}/messages/${name}_send`,
+                              },
+                          ]
                         : [],
                     "x-ws-asyncapi-operation": 1,
                 };
+                if (validation) {
+                    messages[`${channel.name}_${name}_send`] = {
+                        payload: toLibrarySpec(name, validation),
+                    };
+                }
             }
         }
 
@@ -82,16 +93,19 @@ export function getAsyncApiDocument(
                     channel: {
                         $ref: `#/channels/${channel.name}`,
                     },
+                    // TODO: fix types too
                     messages: [
                         {
-                            payload: toLibrarySpec(
-                                name,
-                                validation ?? Type.Any(),
-                            ),
+                            $ref: `#/channels/${channel.name}/messages/${name}_receive`,
                         },
                     ],
                     "x-ws-asyncapi-operation": 1,
                 };
+                if (validation) {
+                    messages[`${channel.name}_${name}_receive`] = {
+                        payload: toLibrarySpec(name, validation),
+                    };
+                }
             }
         }
     }

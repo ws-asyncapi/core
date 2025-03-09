@@ -19,7 +19,7 @@ export * from "./ui.ts";
 
 export function getAsyncApiDocument(
     channelsRaw: AnyChannel[],
-    schema: Partial<AsyncAPIObject>,
+    schema: Partial<AsyncAPIObject> = {},
 ): AsyncAPIObject {
     const channels: ChannelsObject = {};
     const operations: OperationsObject = {};

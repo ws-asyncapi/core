@@ -1,9 +1,12 @@
 import type { Static, TObject, TSchema } from "@sinclair/typebox";
 import type { ChannelObject } from "asyncapi-types";
 import type {
+    BeforeUpgradeHandler,
+    ExtractRouteParams,
     MessageHandler,
     MessageHandlerSchema,
     OnOpenHandler,
+    RequestData,
 } from "./types.ts";
 import type {
     WebSocketImplementation,
@@ -15,7 +18,7 @@ export * from "./websocket.ts";
 export * from "./types.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
-export type AnyChannel = Channel<any, any>;
+export type AnyChannel = Channel<any, any, any, any, any, any, any, any>;
 
 // TODO: maybe use `defineOperation`
 export class Channel<
@@ -26,25 +29,46 @@ export class Channel<
     // biome-ignore lint/complexity/noBannedTypes: <explanation>
     WebsocketServerData extends WebsocketDataType["server"] = {},
     Topics extends string = string,
+    Path extends `/${string}` = `/${string}`,
+    Params extends unknown | undefined = ExtractRouteParams<Path>,
+    Data extends unknown | undefined = {},
 > {
     public "~" = {
         client: new Map<
             string,
-            // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-            MessageHandlerSchema<WebsocketDataType, Topics, any>
+            MessageHandlerSchema<
+                WebsocketDataType,
+                Topics,
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+                any,
+                Query,
+                Headers,
+                Params,
+                Data
+            >
         >(),
         server: new Map<string, TSchema>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
         onOpen: undefined as
-            | ((ws: WebSocketImplementation<WebsocketDataType, Topics>) => void)
+            | OnOpenHandler<
+                  WebsocketDataType,
+                  Topics,
+                  Query,
+                  Headers,
+                  Params,
+                  Data
+              >
             | undefined,
         globalPublish: undefined as
             | ((topic: any, type: any, message: any) => void)
             | undefined,
+        beforeUpgrade: undefined as
+            | BeforeUpgradeHandler<Query, Headers, Params, Data>
+            | undefined,
     };
     constructor(
-        public address: `/${string}`,
+        public address: Path,
         public name: string,
         public schema: ChannelObject = {},
     ) {}
@@ -56,11 +80,13 @@ export class Channel<
         Headers,
         WebsocketClientData,
         WebsocketServerData,
-        Topics
+        Topics,
+        Path,
+        Params
     > {
         this["~"].query = query;
 
-        return this;
+        return this as any;
     }
 
     headers<HeadersObject extends TObject>(
@@ -70,11 +96,13 @@ export class Channel<
         Static<HeadersObject>,
         WebsocketClientData,
         WebsocketServerData,
-        Topics
+        Topics,
+        Path,
+        Params
     > {
         this["~"].headers = headers;
 
-        return this;
+        return this as any;
     }
 
     serverMessage<Name extends string, Validation extends TSchema>(
@@ -87,11 +115,13 @@ export class Channel<
         WebsocketServerData & {
             [k in Name]: Static<Validation>;
         },
-        Topics
+        Topics,
+        Path,
+        Params
     > {
         this["~"].server.set(name, validation);
 
-        return this;
+        return this as any;
     }
 
     clientMessage<Validation extends TSchema, Message = Static<Validation>>(
@@ -102,7 +132,11 @@ export class Channel<
                 server: WebsocketServerData;
             },
             Topics,
-            Message
+            Message,
+            Query,
+            Headers,
+            Params,
+            Data
         >,
         validation?: Validation,
     ): Channel<
@@ -110,14 +144,28 @@ export class Channel<
         Headers,
         WebsocketClientData,
         WebsocketServerData,
-        Topics
+        Topics,
+        Path,
+        Params
     > {
         this["~"].client.set(name, { handler, validation });
 
-        return this;
+        return this as any;
     }
 
-    onOpen(handler: OnOpenHandler<WebsocketDataType, Topics>): this {
+    onOpen(
+        handler: OnOpenHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+            },
+            Topics,
+            Query,
+            Headers,
+            Params,
+            Data
+        >,
+    ): this {
         this["~"].onOpen = handler;
 
         return this;
@@ -151,9 +199,29 @@ export class Channel<
         Headers,
         WebsocketClientData,
         WebsocketServerData,
-        T
+        T,
+        Path,
+        Params
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+        return this as any;
+    }
+
+    beforeUpgrade<DataThis>(
+        handler: BeforeUpgradeHandler<Query, Headers, Params, DataThis>,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data & DataThis
+    > {
+        // @ts-expect-error
+        this["~"].beforeUpgrade = handler;
+
         return this as any;
     }
 }

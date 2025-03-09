@@ -33,7 +33,7 @@
     "license": "MIT",
     "dependencies": {
         "@sinclair/typebox": "^0.34.28",
-        "asyncapi-types": "3.0.2"
+        "asyncapi-types": "^3.0.2"
     },
     "overrides": {
         "@sinclair/typebox": "0.34.28"

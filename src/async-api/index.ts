@@ -26,7 +26,7 @@ export function getAsyncApiDocument(
 
     for (const channel of channelsRaw) {
         const wsBinding: ChannelBindingsObject["ws"] = {
-            bindingVersion: "latest",
+            bindingVersion: "0.1.0",
         };
 
         const parameters: Record<string, ParameterObject> = {};
@@ -56,9 +56,11 @@ export function getAsyncApiDocument(
 
         channels[channel.name] = {
             address: toChannelExpression(channel.address),
+            title: channel.name,
             bindings: {
                 ws: wsBinding,
             },
+            messages,
             parameters,
         };
 
@@ -72,14 +74,14 @@ export function getAsyncApiDocument(
                     messages: validation
                         ? [
                               {
-                                  $ref: `#/channels/${channel.name}/messages/${name}_send`,
+                                  $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_send`)}`,
                               },
                           ]
                         : [],
                     "x-ws-asyncapi-operation": 1,
                 };
                 if (validation) {
-                    messages[`${channel.name}_${name}_send`] = {
+                    messages[toPascalCase(`${name}_send`)] = {
                         payload: toLibrarySpec(name, validation),
                     };
                 }
@@ -96,13 +98,13 @@ export function getAsyncApiDocument(
                     // TODO: fix types too
                     messages: [
                         {
-                            $ref: `#/channels/${channel.name}/messages/${name}_receive`,
+                            $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_receive`)}`,
                         },
                     ],
                     "x-ws-asyncapi-operation": 1,
                 };
                 if (validation) {
-                    messages[`${channel.name}_${name}_receive`] = {
+                    messages[toPascalCase(`${name}_receive`)] = {
                         payload: toLibrarySpec(name, validation),
                     };
                 }

@@ -1,15 +1,22 @@
 import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
 import type { ChannelObject, SchemaObject } from "asyncapi-types";
 import type { MaybePromise } from "./utils.ts";
-
+import type {
+    WebSocketImplementation,
+    WebsocketDataType,
+} from "./websocket.ts";
 export * from "./async-api/index.ts";
+export * from "./websocket.ts";
 
-type MessageHandler<Message> = (data: {
-    ws: any;
+type MessageHandler<WebsocketData extends WebsocketDataType, Message> = (data: {
+    ws: WebSocketImplementation<WebsocketData>;
     message: Message;
 }) => MaybePromise<void>;
-interface MessageHandlerSchema<Message> {
-    handler: MessageHandler<Message>;
+interface MessageHandlerSchema<
+    WebsocketData extends WebsocketDataType,
+    Message,
+> {
+    handler: MessageHandler<WebsocketData, Message>;
     validation?: TSchema;
 }
 
@@ -20,9 +27,11 @@ export type AnyChannel = Channel<any, any>;
 export class Channel<
     Query extends unknown | undefined,
     Headers extends unknown | undefined,
+    WebsocketClientData extends WebsocketDataType["client"] = {},
+    WebsocketServerData extends WebsocketDataType["server"] = {},
 > {
     public "~" = {
-        client: new Map<string, MessageHandlerSchema<any>>(),
+        client: new Map<string, MessageHandlerSchema<WebsocketDataType, any>>(),
         server: new Map<string, TSchema>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
@@ -49,7 +58,17 @@ export class Channel<
         return this;
     }
 
-    serverMessage(name: string, validation: TSchema): this {
+    serverMessage<Name extends string, Validation extends TSchema>(
+        name: Name,
+        validation: Validation,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData & {
+            [k in Name]: Static<Validation>;
+        }
+    > {
         this["~"].server.set(name, validation);
 
         return this;
@@ -57,7 +76,13 @@ export class Channel<
 
     clientMessage<Validation extends TSchema, Message = Static<Validation>>(
         name: string,
-        handler: MessageHandler<Message>,
+        handler: MessageHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+            },
+            Message
+        >,
         validation?: Validation,
     ): this {
         this["~"].client.set(name, { handler, validation });

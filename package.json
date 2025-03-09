@@ -27,7 +27,7 @@
         "typescript": "^5.8.2"
     },
     "scripts": {
-        "prepublishOnly": "bunx pkgroll"
+        "prepublishOnly": "bun test && bunx pkgroll"
     },
     "files": ["dist"],
     "license": "MIT",

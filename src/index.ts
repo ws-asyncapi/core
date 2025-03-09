@@ -30,6 +30,7 @@ export class Channel<
     public "~" = {
         client: new Map<
             string,
+            // biome-ignore lint/suspicious/noExplicitAny: <explanation>
             MessageHandlerSchema<WebsocketDataType, Topics, any>
         >(),
         server: new Map<string, TSchema>(),
@@ -37,6 +38,9 @@ export class Channel<
         headers: undefined as TObject | undefined,
         onOpen: undefined as
             | ((ws: WebSocketImplementation<WebsocketDataType, Topics>) => void)
+            | undefined,
+        globalPublish: undefined as
+            | ((topic: any, type: any, message: any) => void)
             | undefined,
     };
     constructor(
@@ -47,7 +51,13 @@ export class Channel<
 
     query<QueryObject extends TObject>(
         query: QueryObject,
-    ): Channel<Static<QueryObject>, Headers> {
+    ): Channel<
+        Static<QueryObject>,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics
+    > {
         this["~"].query = query;
 
         return this;
@@ -55,7 +65,13 @@ export class Channel<
 
     headers<HeadersObject extends TObject>(
         headers: HeadersObject,
-    ): Channel<Query, Static<HeadersObject>> {
+    ): Channel<
+        Query,
+        Static<HeadersObject>,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics
+    > {
         this["~"].headers = headers;
 
         return this;
@@ -70,7 +86,8 @@ export class Channel<
         WebsocketClientData,
         WebsocketServerData & {
             [k in Name]: Static<Validation>;
-        }
+        },
+        Topics
     > {
         this["~"].server.set(name, validation);
 
@@ -88,7 +105,13 @@ export class Channel<
             Message
         >,
         validation?: Validation,
-    ): this {
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics
+    > {
         this["~"].client.set(name, { handler, validation });
 
         return this;
@@ -98,5 +121,39 @@ export class Channel<
         this["~"].onOpen = handler;
 
         return this;
+    }
+
+    /**
+     * ! Be careful this `public` method does not see to what channel it belongs to.
+     * This function can be changed in the near future.
+     */
+    publish<Name extends string>(
+        topic: Topics,
+        name: Name,
+        message: WebsocketServerData[Name],
+    ): void {
+        if (!this["~"].globalPublish) {
+            console.error(
+                "Adapter does not support global publish or not initialized",
+            );
+
+            return;
+        }
+
+        this["~"].globalPublish(topic, name, message);
+    }
+
+    /**
+     * This function can be changed in the near future.
+     */
+    $typeChannels<T extends string>(): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        T
+    > {
+        // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+        return this as any;
     }
 }

@@ -60,7 +60,7 @@ describe("AsyncAPI", () => {
                 "address": "/test/{id}",
                 "bindings": {
                   "ws": {
-                    "bindingVersion": "latest",
+                    "bindingVersion": "0.1.0",
                     "query": {
                       [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
@@ -76,9 +76,11 @@ describe("AsyncAPI", () => {
                     },
                   },
                 },
+                "messages": {},
                 "parameters": {
                   "id": {},
                 },
+                "title": "test",
               },
             },
             "components": {},
@@ -123,7 +125,7 @@ describe("AsyncAPI", () => {
                 "address": "/test/{id}",
                 "bindings": {
                   "ws": {
-                    "bindingVersion": "latest",
+                    "bindingVersion": "0.1.0",
                     "query": {
                       [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
@@ -139,25 +141,8 @@ describe("AsyncAPI", () => {
                     },
                   },
                 },
-                "parameters": {
-                  "id": {},
-                },
-              },
-            },
-            "components": {},
-            "info": {
-              "description": "AsyncAPI",
-              "title": "AsyncAPI",
-              "version": "1.0.0",
-            },
-            "operations": {
-              "TestTest": {
-                "action": "send",
-                "channel": {
-                  "$ref": "#/channels/test",
-                },
-                "messages": [
-                  {
+                "messages": {
+                  "TestSend": {
                     "payload": {
                       [Symbol(TypeBox.Kind)]: "Tuple",
                       "additionalItems": false,
@@ -186,6 +171,29 @@ describe("AsyncAPI", () => {
                       "type": "array",
                     },
                   },
+                },
+                "parameters": {
+                  "id": {},
+                },
+                "title": "test",
+              },
+            },
+            "components": {},
+            "info": {
+              "description": "AsyncAPI",
+              "title": "AsyncAPI",
+              "version": "1.0.0",
+            },
+            "operations": {
+              "TestTest": {
+                "action": "send",
+                "channel": {
+                  "$ref": "#/channels/test",
+                },
+                "messages": [
+                  {
+                    "$ref": "#/channels/test/messages/TestSend",
+                  },
                 ],
                 "x-ws-asyncapi-operation": 1,
               },
@@ -196,23 +204,7 @@ describe("AsyncAPI", () => {
                 },
                 "messages": [
                   {
-                    "payload": {
-                      [Symbol(TypeBox.Kind)]: "Tuple",
-                      "additionalItems": false,
-                      "items": [
-                        {
-                          [Symbol(TypeBox.Kind)]: "Literal",
-                          "const": "test-really",
-                          "type": "string",
-                        },
-                        {
-                          [Symbol(TypeBox.Kind)]: "Any",
-                        },
-                      ],
-                      "maxItems": 2,
-                      "minItems": 2,
-                      "type": "array",
-                    },
+                    "$ref": "#/channels/test/messages/TestReallyReceive",
                   },
                 ],
                 "x-ws-asyncapi-operation": 1,

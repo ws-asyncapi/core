@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 describe("Channel", () => {
     it("should create a channel", () => {
-        const channel = new Channel("/test/:id");
+        const channel = new Channel("/test/:id", "test");
 
         console.log(channel);
 
@@ -14,7 +14,7 @@ describe("Channel", () => {
     });
 
     it("should serverMessage a message", () => {
-        const channel = new Channel("/test/:id").serverMessage(
+        const channel = new Channel("/test/:id", "test").serverMessage(
             "message",
             Type.Object({}),
         );
@@ -23,7 +23,7 @@ describe("Channel", () => {
     });
 
     it("should clientMessage a message", () => {
-        const channel = new Channel("/test/:id").clientMessage(
+        const channel = new Channel("/test/:id", "test").clientMessage(
             "message",
             (message) => {
                 console.log(message);
@@ -35,13 +35,13 @@ describe("Channel", () => {
     });
 
     it("should allow query in a channel", () => {
-        const channel = new Channel("/test/:id").query(Type.Object({}));
+        const channel = new Channel("/test/:id", "test").query(Type.Object({}));
 
         expect(channel["~"].query).toBeDefined();
     });
 
     it("should allow headers in a channel", () => {
-        const channel = new Channel("/test/:id").headers(
+        const channel = new Channel("/test/:id", "test").headers(
             Type.Object({
                 test: Type.String(),
             }),

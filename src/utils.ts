@@ -23,19 +23,9 @@ export function toPascalCase(str: string) {
 // !CUSTOM Type support for AsyncAPI
 // !Based on https://github.com/asyncapi/bindings/blob/master/websockets/README.md#channel
 declare module "asyncapi-types" {
-    // interface ParameterObject {
-    //     name: string;
-    //     in: "path";
-    //     required: true;
-    // }
-
-    // interface WSBindingObject {
-    //     "x-parameters"?: ParameterObject[];
-    // }
     interface OperationObject {
         "x-ws-asyncapi-operation": 1;
     }
 }
 
 // ~1 is /
-export type MaybePromise<T> = T | Promise<T>;

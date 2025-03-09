@@ -1,24 +1,18 @@
-import type { Static, TObject, TSchema, Type } from "@sinclair/typebox";
-import type { ChannelObject, SchemaObject } from "asyncapi-types";
-import type { MaybePromise } from "./utils.ts";
+import type { Static, TObject, TSchema } from "@sinclair/typebox";
+import type { ChannelObject } from "asyncapi-types";
+import type {
+    MessageHandler,
+    MessageHandlerSchema,
+    OnOpenHandler,
+} from "./types.ts";
 import type {
     WebSocketImplementation,
     WebsocketDataType,
 } from "./websocket.ts";
+
 export * from "./async-api/index.ts";
 export * from "./websocket.ts";
-
-type MessageHandler<WebsocketData extends WebsocketDataType, Message> = (data: {
-    ws: WebSocketImplementation<WebsocketData>;
-    message: Message;
-}) => MaybePromise<void>;
-interface MessageHandlerSchema<
-    WebsocketData extends WebsocketDataType,
-    Message,
-> {
-    handler: MessageHandler<WebsocketData, Message>;
-    validation?: TSchema;
-}
+export * from "./types.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<any, any>;
@@ -27,14 +21,23 @@ export type AnyChannel = Channel<any, any>;
 export class Channel<
     Query extends unknown | undefined,
     Headers extends unknown | undefined,
+    // biome-ignore lint/complexity/noBannedTypes: <explanation>
     WebsocketClientData extends WebsocketDataType["client"] = {},
+    // biome-ignore lint/complexity/noBannedTypes: <explanation>
     WebsocketServerData extends WebsocketDataType["server"] = {},
+    Topics extends string = string,
 > {
     public "~" = {
-        client: new Map<string, MessageHandlerSchema<WebsocketDataType, any>>(),
+        client: new Map<
+            string,
+            MessageHandlerSchema<WebsocketDataType, Topics, any>
+        >(),
         server: new Map<string, TSchema>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
+        onOpen: undefined as
+            | ((ws: WebSocketImplementation<WebsocketDataType, Topics>) => void)
+            | undefined,
     };
     constructor(
         public address: `/${string}`,
@@ -81,11 +84,18 @@ export class Channel<
                 client: WebsocketClientData;
                 server: WebsocketServerData;
             },
+            Topics,
             Message
         >,
         validation?: Validation,
     ): this {
         this["~"].client.set(name, { handler, validation });
+
+        return this;
+    }
+
+    onOpen(handler: OnOpenHandler<WebsocketDataType, Topics>): this {
+        this["~"].onOpen = handler;
 
         return this;
     }

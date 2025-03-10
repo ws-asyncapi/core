@@ -216,7 +216,9 @@ export class Channel<
     publish<Name extends string>(
         topic: Topics,
         name: Name,
-        message: WebsocketServerData[Name],
+        ...message: WebsocketServerData[Name] extends never
+            ? []
+            : [WebsocketServerData[Name]]
     ): void {
         if (!this["~"].globalPublish) {
             console.error(
@@ -226,7 +228,8 @@ export class Channel<
             return;
         }
 
-        this["~"].globalPublish(topic, name, message);
+        // @ts-expect-error
+        this["~"].globalPublish(topic, name, ...message);
     }
 
     /**

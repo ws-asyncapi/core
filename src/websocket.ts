@@ -11,7 +11,9 @@ export abstract class WebSocketImplementation<
 > {
     abstract send<T extends keyof WebsocketData["server"]>(
         type: T,
-        data: WebsocketData["server"][T],
+        ...data: WebsocketData["server"][T] extends never
+            ? []
+            : [WebsocketData["server"][T]]
     ): void;
 
     abstract subscribe(topic: Topics): void;
@@ -20,7 +22,9 @@ export abstract class WebSocketImplementation<
     abstract publish<T extends keyof WebsocketData["server"]>(
         topic: Topics,
         type: T,
-        data: WebsocketData["server"][T],
+        ...data: WebsocketData["server"][T] extends never
+            ? []
+            : [WebsocketData["server"][T]]
     ): void;
 
     abstract close(code?: number, reason?: string): void;

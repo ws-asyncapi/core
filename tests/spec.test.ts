@@ -142,6 +142,26 @@ describe("AsyncAPI", () => {
                   },
                 },
                 "messages": {
+                  "TestReallyReceive": {
+                    "payload": {
+                      [Symbol(TypeBox.Kind)]: "Tuple",
+                      "additionalItems": false,
+                      "items": [
+                        {
+                          [Symbol(TypeBox.Kind)]: "Literal",
+                          "const": "test-really",
+                          "type": "string",
+                        },
+                        {
+                          [Symbol(TypeBox.Kind)]: "Never",
+                          "not": {},
+                        },
+                      ],
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "type": "array",
+                    },
+                  },
                   "TestSend": {
                     "payload": {
                       [Symbol(TypeBox.Kind)]: "Tuple",

@@ -47,7 +47,7 @@ export class Channel<
                 Data
             >
         >(),
-        server: new Map<string, TSchema>(),
+        server: new Map<string, TSchema | undefined>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
         onOpen: undefined as
@@ -107,16 +107,18 @@ export class Channel<
         return this as any;
     }
 
-    serverMessage<Name extends string, Validation extends TSchema>(
+    serverMessage<Name extends string, Validation extends TSchema | undefined>(
         name: Name,
-        validation: Validation,
+        validation?: Validation,
     ): Channel<
         Query,
         Headers,
         WebsocketClientData,
-        WebsocketServerData & {
-            [k in Name]: Static<Validation>;
-        },
+        Validation extends TSchema
+            ? WebsocketServerData & {
+                  [k in Name]: Static<Validation>;
+              }
+            : WebsocketServerData,
         Topics,
         Path,
         Params,

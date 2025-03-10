@@ -71,20 +71,17 @@ export function getAsyncApiDocument(
                     channel: {
                         $ref: `#/channels/${channel.name}`,
                     },
-                    messages: validation
-                        ? [
-                              {
-                                  $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_send`)}`,
-                              },
-                          ]
-                        : [],
+                    messages: [
+                        {
+                            $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_send`)}`,
+                        },
+                    ],
                     "x-ws-asyncapi-operation": 1,
                 };
-                if (validation) {
-                    messages[toPascalCase(`${name}_send`)] = {
-                        payload: toLibrarySpec(name, validation),
-                    };
-                }
+
+                messages[toPascalCase(`${name}_send`)] = {
+                    payload: toLibrarySpec(name, validation ?? Type.Never()),
+                };
             }
         }
 
@@ -103,11 +100,10 @@ export function getAsyncApiDocument(
                     ],
                     "x-ws-asyncapi-operation": 1,
                 };
-                if (validation) {
-                    messages[toPascalCase(`${name}_receive`)] = {
-                        payload: toLibrarySpec(name, validation),
-                    };
-                }
+
+                messages[toPascalCase(`${name}_receive`)] = {
+                    payload: toLibrarySpec(name, validation ?? Type.Never()),
+                };
             }
         }
     }

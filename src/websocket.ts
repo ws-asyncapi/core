@@ -17,4 +17,11 @@ export abstract class WebSocketImplementation<
     abstract subscribe(topic: Topics): void;
     abstract unsubscribe(topic: Topics): void;
     abstract isSubscribed(topic: Topics): boolean;
+    abstract publish<T extends keyof WebsocketData["server"]>(
+        topic: Topics,
+        type: T,
+        data: WebsocketData["server"][T],
+    ): void;
+
+    abstract close(code?: number, reason?: string): void;
 }

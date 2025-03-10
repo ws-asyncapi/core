@@ -82,7 +82,8 @@ export class Channel<
         WebsocketServerData,
         Topics,
         Path,
-        Params
+        Params,
+        Data
     > {
         this["~"].query = query;
 
@@ -98,7 +99,8 @@ export class Channel<
         WebsocketServerData,
         Topics,
         Path,
-        Params
+        Params,
+        Data
     > {
         this["~"].headers = headers;
 
@@ -117,7 +119,8 @@ export class Channel<
         },
         Topics,
         Path,
-        Params
+        Params,
+        Data
     > {
         this["~"].server.set(name, validation);
 
@@ -146,7 +149,8 @@ export class Channel<
         WebsocketServerData,
         Topics,
         Path,
-        Params
+        Params,
+        Data
     > {
         this["~"].client.set(name, { handler, validation });
 
@@ -201,7 +205,8 @@ export class Channel<
         WebsocketServerData,
         T,
         Path,
-        Params
+        Params,
+        Data
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;

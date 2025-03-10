@@ -118,18 +118,21 @@ export class Channel<
         return this as any;
     }
 
-    serverMessage<Name extends string, Validation extends TSchema | undefined>(
+    serverMessage<
+        Name extends string,
+        Validation extends TSchema | undefined = undefined,
+    >(
         name: Name,
         validation?: Validation,
     ): Channel<
         Query,
         Headers,
         WebsocketClientData,
-        Validation extends TSchema
-            ? WebsocketServerData & {
-                  [k in Name]: Static<Validation>;
-              }
-            : WebsocketServerData,
+        WebsocketServerData & {
+            [k in Name]: Validation extends TSchema
+                ? Static<Validation>
+                : never;
+        },
         Topics,
         Path,
         Params,

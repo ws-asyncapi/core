@@ -5,6 +5,7 @@ import type {
     ExtractRouteParams,
     MessageHandler,
     MessageHandlerSchema,
+    OnCloseHandler,
     OnOpenHandler,
     RequestData,
 } from "./types.ts";
@@ -52,6 +53,16 @@ export class Channel<
         headers: undefined as TObject | undefined,
         onOpen: undefined as
             | OnOpenHandler<
+                  WebsocketDataType,
+                  Topics,
+                  Query,
+                  Headers,
+                  Params,
+                  Data
+              >
+            | undefined,
+        onClose: undefined as
+            | OnCloseHandler<
                   WebsocketDataType,
                   Topics,
                   Query,
@@ -173,6 +184,24 @@ export class Channel<
         >,
     ): this {
         this["~"].onOpen = handler;
+
+        return this;
+    }
+
+    onClose(
+        handler: OnCloseHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+            },
+            Topics,
+            Query,
+            Headers,
+            Params,
+            Data
+        >,
+    ): this {
+        this["~"].onClose = handler;
 
         return this;
     }

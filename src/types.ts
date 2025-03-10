@@ -37,6 +37,25 @@ export type OnOpenHandler<
     >,
 ) => MaybePromise<void>;
 
+// equal to OnOpenHandler
+export type OnCloseHandler<
+    WebsocketData extends WebsocketDataType,
+    Topics extends string,
+    Query extends unknown | undefined,
+    Headers extends unknown | undefined,
+    Params extends unknown | undefined,
+    Data extends unknown | undefined,
+> = (
+    data: WebsocketClientData<
+        WebsocketData,
+        Topics,
+        Query,
+        Headers,
+        Params,
+        Data
+    >,
+) => MaybePromise<void>;
+
 export interface RequestData<
     Query extends unknown | undefined,
     Headers extends unknown | undefined,

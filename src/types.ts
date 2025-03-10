@@ -1,4 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
+import type { AnyChannel, Channel } from "./index.ts";
 import type {
     WebSocketImplementation,
     WebsocketDataType,
@@ -119,3 +120,23 @@ export type BeforeUpgradeHandler<
     request: RequestData<Query, Headers, Params>,
     // biome-ignore lint/suspicious/noConfusingVoidType: <explanation>
 ) => MaybePromise<void | Response | Data>;
+
+export type GetWebSocketType<ChannelThis extends AnyChannel> =
+    ChannelThis extends Channel<
+        infer Query,
+        infer Headers,
+        infer WebsocketClientData,
+        infer WebsocketServerData,
+        infer Topics,
+        infer Path,
+        infer Params,
+        infer Data
+    >
+        ? WebSocketImplementation<
+              {
+                  client: WebsocketClientData;
+                  server: WebsocketServerData;
+              },
+              Topics
+          >
+        : never;

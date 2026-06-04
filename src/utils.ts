@@ -25,6 +25,8 @@ export function toPascalCase(str: string) {
 declare module "asyncapi-types" {
     interface OperationObject {
         "x-ws-asyncapi-operation": 1;
+        // marks an operation as a request/response RPC (carries a `reply`)
+        "x-ws-asyncapi-rpc"?: 1;
     }
 }
 

@@ -16,6 +16,9 @@ export abstract class WebSocketImplementation<
             : [WebsocketData["server"][T]]
     ): void;
 
+    /** Connection-unique socket id (used for room membership / presence). */
+    abstract readonly id: string;
+
     abstract subscribe(topic: Topics): void;
     abstract unsubscribe(topic: Topics): void;
     abstract isSubscribed(topic: Topics): boolean;
@@ -26,6 +29,9 @@ export abstract class WebSocketImplementation<
             ? []
             : [WebsocketData["server"][T]]
     ): void;
+
+    /** Cluster-wide socket ids currently in `topic` (presence / fetchSockets). */
+    abstract roomMembers(topic: Topics): Promise<string[]>;
 
     abstract close(code?: number, reason?: string): void;
 }

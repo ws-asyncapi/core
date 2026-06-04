@@ -8,18 +8,26 @@ import type {
     OnCloseHandler,
     OnOpenHandler,
     RequestData,
+    RpcHandler,
 } from "./types.ts";
-import type {
-    WebSocketImplementation,
-    WebsocketDataType,
-} from "./websocket.ts";
+import type { WebsocketDataType } from "./websocket.ts";
 
 export * from "./async-api/index.ts";
 export * from "./websocket.ts";
 export * from "./types.ts";
+export * from "./wire.ts";
+export * from "./backplane.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
-export type AnyChannel = Channel<any, any, any, any, any, any, any, any>;
+export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;
+
+/** Stored RPC definition (input/output schemas + handler) on a channel. */
+export interface RpcDefinition {
+    input: TSchema;
+    output: TSchema;
+    // biome-ignore lint/suspicious/noExplicitAny: stored handler is type-erased
+    handler: RpcHandler<any, any, any, any, any, any, any, any>;
+}
 
 // TODO: maybe use `defineOperation`
 export class Channel<
@@ -33,6 +41,9 @@ export class Channel<
     Path extends `/${string}` = `/${string}`,
     Params extends unknown | undefined = ExtractRouteParams<Path>,
     Data extends unknown | undefined = {},
+    // 9th generic: accumulated RPC map (name -> { input; output }).
+    // biome-ignore lint/complexity/noBannedTypes: <explanation>
+    RpcMap extends Record<string, { input: unknown; output: unknown }> = {},
 > {
     public "~" = {
         client: new Map<
@@ -49,6 +60,7 @@ export class Channel<
             >
         >(),
         server: new Map<string, TSchema | undefined>(),
+        rpc: new Map<string, RpcDefinition>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
         onOpen: undefined as
@@ -71,11 +83,45 @@ export class Channel<
                   Data
               >
             | undefined,
+        // biome-ignore lint/suspicious/noExplicitAny: type-erased adapter seam
         globalPublish: undefined as
             | ((topic: any, type: any, message: any) => void)
             | undefined,
         beforeUpgrade: undefined as
             | BeforeUpgradeHandler<Query, Headers, Params, Data>
+            | undefined,
+        // connection-scoped context extenders (.derive / .resolve), run in order on open
+        derives: [] as Array<
+            (ctx: {
+                request: RequestData<Query, Headers, Params>;
+                // biome-ignore lint/suspicious/noExplicitAny: accumulated data
+                data: any;
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+            }) => any
+        >,
+        // per-message middleware (.beforeMessage); throwing rejects the message
+        middlewares: [] as Array<
+            (ctx: {
+                // biome-ignore lint/suspicious/noExplicitAny: type-erased ws
+                ws: any;
+                type: string;
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+                message: any;
+                request: RequestData<Query, Headers, Params>;
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+                data: any;
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+            }) => any
+        >,
+        onError: undefined as
+            | ((ctx: {
+                  // biome-ignore lint/suspicious/noExplicitAny: type-erased ws
+                  ws: any;
+                  error: unknown;
+                  type: string;
+                  // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+                  data: any;
+              }) => void)
             | undefined,
     };
     constructor(
@@ -94,10 +140,12 @@ export class Channel<
         Topics,
         Path,
         Params,
-        Data
+        Data,
+        RpcMap
     > {
         this["~"].query = query;
 
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
     }
 
@@ -111,10 +159,12 @@ export class Channel<
         Topics,
         Path,
         Params,
-        Data
+        Data,
+        RpcMap
     > {
         this["~"].headers = headers;
 
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
     }
 
@@ -136,10 +186,12 @@ export class Channel<
         Topics,
         Path,
         Params,
-        Data
+        Data,
+        RpcMap
     > {
         this["~"].server.set(name, validation);
 
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
     }
 
@@ -166,10 +218,59 @@ export class Channel<
         Topics,
         Path,
         Params,
-        Data
+        Data,
+        RpcMap
     > {
         this["~"].client.set(name, { handler, validation });
 
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /**
+     * Declares a request/response message (acknowledged RPC). Unlike
+     * {@link clientMessage} (fire-and-forget), the handler returns a value that
+     * is validated against `output` and sent back to the caller as a typed
+     * reply. The client awaits it via `client.request(name, input)`.
+     */
+    rpc<Name extends string, Input extends TSchema, Output extends TSchema>(
+        name: Name,
+        input: Input,
+        output: Output,
+        handler: RpcHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+            },
+            Topics,
+            Static<Input>,
+            Static<Output>,
+            Query,
+            Headers,
+            Params,
+            Data
+        >,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data,
+        RpcMap & {
+            [k in Name]: { input: Static<Input>; output: Static<Output> };
+        }
+    > {
+        this["~"].rpc.set(name, {
+            input,
+            output,
+            // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+            handler: handler as any,
+        });
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
     }
 
@@ -228,7 +329,7 @@ export class Channel<
             return;
         }
 
-        // @ts-expect-error
+        // @ts-expect-error variadic spread into type-erased seam
         this["~"].globalPublish(topic, name, ...message);
     }
 
@@ -243,7 +344,8 @@ export class Channel<
         T,
         Path,
         Params,
-        Data
+        Data,
+        RpcMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;
@@ -259,11 +361,112 @@ export class Channel<
         Topics,
         Path,
         Params,
-        Data & DataThis
+        Data & DataThis,
+        RpcMap
     > {
-        // @ts-expect-error
+        // @ts-expect-error handler Data variance
         this["~"].beforeUpgrade = handler;
 
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
+    }
+
+    /**
+     * Extend the connection context with typed fields (auth, db handles, the
+     * decoded user, ...). Runs once on open; the returned object is merged into
+     * `data` and visible to every handler. Chainable — each call widens `data`.
+     */
+    derive<Derived extends Record<string, unknown>>(
+        fn: (ctx: {
+            request: RequestData<Query, Headers, Params>;
+            data: Data;
+        }) => Derived,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data & Derived,
+        RpcMap
+    > {
+        // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+        this["~"].derives.push(fn as any);
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /** Async variant of {@link derive} (e.g. fetch the user from a token). */
+    resolve<Derived extends Record<string, unknown>>(
+        fn: (ctx: {
+            request: RequestData<Query, Headers, Params>;
+            data: Data;
+        }) => Promise<Derived>,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data & Derived,
+        RpcMap
+    > {
+        // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+        this["~"].derives.push(fn as any);
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /**
+     * Per-message middleware (auth, rate-limit, logging). Runs before each
+     * command/rpc handler. Throw to reject: on an rpc the caller receives a
+     * typed Error frame; on a command it routes to {@link onError}.
+     */
+    beforeMessage(
+        fn: (ctx: {
+            ws: import("./websocket.ts").WebSocketImplementation<
+                {
+                    client: WebsocketClientData;
+                    server: WebsocketServerData;
+                },
+                Topics
+            >;
+            type: string;
+            message: unknown;
+            request: RequestData<Query, Headers, Params>;
+            data: Data;
+        }) => unknown,
+    ): this {
+        // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+        this["~"].middlewares.push(fn as any);
+
+        return this;
+    }
+
+    /** Handle errors thrown by command handlers or middleware. */
+    onError(
+        fn: (ctx: {
+            ws: import("./websocket.ts").WebSocketImplementation<
+                {
+                    client: WebsocketClientData;
+                    server: WebsocketServerData;
+                },
+                Topics
+            >;
+            error: unknown;
+            type: string;
+            data: Data;
+        }) => void,
+    ): this {
+        // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+        this["~"].onError = fn as any;
+
+        return this;
     }
 }

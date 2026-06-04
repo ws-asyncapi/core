@@ -64,6 +64,23 @@ export function getAsyncApiDocument(
             parameters,
         };
 
+        // Operation keys are `${channel}_${name}`, so a name reused across
+        // server/client/rpc would silently overwrite another operation in the
+        // doc. Reject collisions up front.
+        const allNames = [
+            ...channel["~"].server.keys(),
+            ...channel["~"].client.keys(),
+            ...channel["~"].rpc.keys(),
+        ];
+        const duplicates = [
+            ...new Set(allNames.filter((n, i) => allNames.indexOf(n) !== i)),
+        ];
+        if (duplicates.length > 0) {
+            throw new Error(
+                `Channel "${channel.name}" has duplicate message names across serverMessage/clientMessage/rpc: ${duplicates.join(", ")}`,
+            );
+        }
+
         if (channel["~"].server.size > 0) {
             for (const [name, validation] of channel["~"].server) {
                 operations[toPascalCase(`${channel.name}_${name}`)] = {
@@ -103,6 +120,41 @@ export function getAsyncApiDocument(
 
                 messages[toPascalCase(`${name}_receive`)] = {
                     payload: toLibrarySpec(name, validation ?? Type.Never()),
+                };
+            }
+        }
+
+        if (channel["~"].rpc.size > 0) {
+            for (const [name, { input, output }] of channel["~"].rpc) {
+                operations[toPascalCase(`${channel.name}_${name}`)] = {
+                    action: "receive",
+                    channel: {
+                        $ref: `#/channels/${channel.name}`,
+                    },
+                    messages: [
+                        {
+                            $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_request`)}`,
+                        },
+                    ],
+                    reply: {
+                        channel: {
+                            $ref: `#/channels/${channel.name}`,
+                        },
+                        messages: [
+                            {
+                                $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_reply`)}`,
+                            },
+                        ],
+                    },
+                    "x-ws-asyncapi-operation": 1,
+                    "x-ws-asyncapi-rpc": 1,
+                };
+
+                messages[toPascalCase(`${name}_request`)] = {
+                    payload: toLibrarySpec(name, input),
+                };
+                messages[toPascalCase(`${name}_reply`)] = {
+                    payload: toLibrarySpec(name, output),
                 };
             }
         }

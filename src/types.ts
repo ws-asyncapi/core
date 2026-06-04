@@ -102,6 +102,27 @@ export interface MessageHandlerSchema<
     validation?: TSchema;
 }
 
+/**
+ * Handler for an RPC (`.rpc()`) message. Identical context to
+ * {@link MessageHandler}, but it returns a value that is sent back to the
+ * caller as the typed reply.
+ */
+export type RpcHandler<
+    WebsocketData extends WebsocketDataType,
+    Topics extends string,
+    Message,
+    Output,
+    Query extends unknown | undefined,
+    Headers extends unknown | undefined,
+    Params extends unknown | undefined,
+    Data,
+> = (data: {
+    ws: WebSocketImplementation<WebsocketData, Topics>;
+    message: Message;
+    request: RequestData<Query, Headers, Params>;
+    data: Data;
+}) => MaybePromise<Output>;
+
 export type ExtractRouteParams<T> =
     T extends `${string}:${infer Param}/${infer Rest}`
         ? { [K in Param]: string } & ExtractRouteParams<Rest>
@@ -130,7 +151,9 @@ export type GetWebSocketType<ChannelThis extends AnyChannel> =
         infer Topics,
         infer Path,
         infer Params,
-        infer Data
+        infer Data,
+        // biome-ignore lint/correctness/noUnusedVariables: 9th slot (RpcMap), unused here
+        infer _RpcMap
     >
         ? WebSocketImplementation<
               {

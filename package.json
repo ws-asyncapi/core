@@ -1,6 +1,6 @@
 {
     "name": "ws-asyncapi",
-    "version": "0.0.9",
+    "version": "0.1.0",
     "homepage": "https://github.com/kravetsone/ws-asyncapi",
     "readme": "https://github.com/kravetsone/ws-asyncapi",
     "repository": {
@@ -17,6 +17,11 @@
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js",
             "require": "./dist/index.cjs"
+        },
+        "./wire": {
+            "types": "./dist/wire.d.ts",
+            "import": "./dist/wire.js",
+            "require": "./dist/wire.cjs"
         }
     },
     "devDependencies": {

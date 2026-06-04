@@ -17,7 +17,7 @@ export const PROTOCOL_VERSION = 1;
  * ```
  * Event    [0, name, payload, offset?]
  * Command  [1, name, payload]
- * Request  [2, name, corrId, payload]
+ * Request  [2, name, corrId, payload, idemKey?]
  * Reply    [3, corrId, payload]
  * Error    [4, corrId, code, message, data?]
  * Ping     [5, ts]
@@ -75,7 +75,15 @@ export type EventFrame =
     | [Frame.Event, string, unknown]
     | [Frame.Event, string, unknown, number | string];
 export type CommandFrame = [Frame.Command, string, unknown];
-export type RequestFrame = [Frame.Request, string, number, unknown];
+/**
+ * Client→server RPC. The optional 5th element is an idempotency key: when
+ * present, the server runs the handler once per key and replays the cached
+ * outcome to duplicates (retransmits / retries after reconnect), making the
+ * RPC's effect at-least-once-safe. See {@link import("./idempotency.ts").IdempotencyCache}.
+ */
+export type RequestFrame =
+    | [Frame.Request, string, number, unknown]
+    | [Frame.Request, string, number, unknown, string];
 export type ReplyFrame = [Frame.Reply, number, unknown];
 export type ErrorFrame = [Frame.Error, number, ErrorCode, string, unknown?];
 export type PingFrame = [Frame.Ping, number];

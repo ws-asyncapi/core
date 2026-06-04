@@ -8,6 +8,7 @@
  * lives here so it is implemented once and shared.
  */
 import type { Backplane } from "./backplane.ts";
+import { type CachedRpc, IdempotencyCache } from "./idempotency.ts";
 import type { AnyChannel } from "./index.ts";
 import type { OutboundRpc } from "./outbound.ts";
 import { validate } from "./schema.ts";
@@ -36,6 +37,17 @@ export interface Connection {
  *  (`channel.toSocket(id, …)`), cluster-wide, through the normal publish path. */
 export function perSocketRoom(socketId: string): string {
     return `#sid:${socketId}`;
+}
+
+/** Per-channel idempotency cache (lazily created on first keyed RPC). */
+const dedupCaches = new WeakMap<AnyChannel, IdempotencyCache>();
+function dedupCacheFor(channel: AnyChannel): IdempotencyCache {
+    let cache = dedupCaches.get(channel);
+    if (!cache) {
+        cache = new IdempotencyCache();
+        dedupCaches.set(channel, cache);
+    }
+    return cache;
 }
 
 /** Run the channel's `.derive`/`.resolve` chain, then `onOpen`. */
@@ -216,6 +228,7 @@ export async function dispatchFrame(
         }
         case Frame.Request: {
             const [, name, corrId, payload] = frame;
+            const idemKey = frame[4];
             const entry = channel["~"].rpc.get(name);
             if (!entry) {
                 wsi.sendFrame([
@@ -227,37 +240,59 @@ export async function dispatchFrame(
                 return;
             }
 
-            const inputResult = await validate(entry.input, payload);
-            if (!inputResult.ok) {
+            // Run the handler (or a cached duplicate) to a settled outcome, then
+            // send it under THIS connection's corrId. The outcome is the same for
+            // success, validation failure, and handler error, so a keyed retry
+            // always replays the original result rather than re-executing.
+            const exec = async (): Promise<CachedRpc> => {
+                const inputResult = await validate(entry.input, payload);
+                if (!inputResult.ok)
+                    return {
+                        ok: false,
+                        code: "VALIDATION",
+                        message: `Invalid input for RPC "${name}"`,
+                        data: inputResult.issues.slice(0, 5),
+                    };
+                try {
+                    const ctxData = await applyMiddleware(
+                        name,
+                        inputResult.value,
+                    );
+                    const reply = await entry.handler({
+                        ws: wsi,
+                        message: inputResult.value,
+                        request,
+                        data: ctxData,
+                    });
+                    return { ok: true, payload: reply };
+                } catch (error) {
+                    const code: ErrorCode =
+                        error instanceof RpcError ? error.code : "INTERNAL";
+                    return {
+                        ok: false,
+                        code,
+                        message:
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                        data: error instanceof RpcError ? error.data : undefined,
+                    };
+                }
+            };
+
+            const result = idemKey
+                ? await dedupCacheFor(channel).run(idemKey, exec)
+                : await exec();
+
+            if (result.ok) wsi.sendFrame([Frame.Reply, corrId, result.payload]);
+            else
                 wsi.sendFrame([
                     Frame.Error,
                     corrId,
-                    "VALIDATION",
-                    `Invalid input for RPC "${name}"`,
-                    inputResult.issues.slice(0, 5),
+                    result.code as ErrorCode,
+                    result.message ?? "error",
+                    result.data,
                 ]);
-                return;
-            }
-            const message = inputResult.value;
-
-            try {
-                const ctxData = await applyMiddleware(name, message);
-                const reply = await entry.handler({
-                    ws: wsi,
-                    message,
-                    request,
-                    data: ctxData,
-                });
-                wsi.sendFrame([Frame.Reply, corrId, reply]);
-            } catch (error) {
-                const code: ErrorCode =
-                    error instanceof RpcError ? error.code : "INTERNAL";
-                const msg =
-                    error instanceof Error ? error.message : String(error);
-                const errData =
-                    error instanceof RpcError ? error.data : undefined;
-                wsi.sendFrame([Frame.Error, corrId, code, msg, errData]);
-            }
             return;
         }
         default:

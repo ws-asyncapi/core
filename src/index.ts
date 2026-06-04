@@ -25,6 +25,12 @@ export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;
 export interface RpcDefinition {
     input: TSchema;
     output: TSchema;
+    /**
+     * Declared, recoverable error codes for this RPC, each with the schema of
+     * its `data` payload. Surfaced in the contract + generated client so the
+     * caller gets a typed, discriminated error union (see {@link Channel.rpc}).
+     */
+    errors?: Record<string, TSchema>;
     // biome-ignore lint/suspicious/noExplicitAny: stored handler is type-erased
     handler: RpcHandler<any, any, any, any, any, any, any, any>;
 }
@@ -41,9 +47,12 @@ export class Channel<
     Path extends `/${string}` = `/${string}`,
     Params extends unknown | undefined = ExtractRouteParams<Path>,
     Data extends unknown | undefined = {},
-    // 9th generic: accumulated RPC map (name -> { input; output }).
-    // biome-ignore lint/complexity/noBannedTypes: <explanation>
-    RpcMap extends Record<string, { input: unknown; output: unknown }> = {},
+    // 9th generic: accumulated RPC map (name -> { input; output; errors }).
+    RpcMap extends Record<
+        string,
+        { input: unknown; output: unknown; errors: Record<string, unknown> }
+        // biome-ignore lint/complexity/noBannedTypes: <explanation>
+    > = {},
 > {
     public "~" = {
         client: new Map<
@@ -232,8 +241,19 @@ export class Channel<
      * {@link clientMessage} (fire-and-forget), the handler returns a value that
      * is validated against `output` and sent back to the caller as a typed
      * reply. The client awaits it via `client.request(name, input)`.
+     *
+     * Pass an optional `errors` map (code → `data` schema) to declare expected
+     * failures in the contract. The handler throws
+     * `new RpcError(code, message, data)`; the generated client surfaces them
+     * as a typed, discriminated union via `client.safeRequest(name, input)`.
      */
-    rpc<Name extends string, Input extends TSchema, Output extends TSchema>(
+    rpc<
+        Name extends string,
+        Input extends TSchema,
+        Output extends TSchema,
+        // biome-ignore lint/complexity/noBannedTypes: empty default for no errors
+        Errors extends Record<string, TSchema> = {},
+    >(
         name: Name,
         input: Input,
         output: Output,
@@ -250,6 +270,7 @@ export class Channel<
             Params,
             Data
         >,
+        errors?: Errors,
     ): Channel<
         Query,
         Headers,
@@ -260,12 +281,17 @@ export class Channel<
         Params,
         Data,
         RpcMap & {
-            [k in Name]: { input: Static<Input>; output: Static<Output> };
+            [k in Name]: {
+                input: Static<Input>;
+                output: Static<Output>;
+                errors: { [C in keyof Errors]: Static<Errors[C]> };
+            };
         }
     > {
         this["~"].rpc.set(name, {
             input,
             output,
+            errors,
             // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
             handler: handler as any,
         });

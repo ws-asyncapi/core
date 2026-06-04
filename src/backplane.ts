@@ -13,16 +13,36 @@ export interface BackplaneMessage {
     payload: string | Uint8Array;
     /** node id that originated the message (skip when it equals our nodeId) */
     origin: string;
-    /** monotonic per-topic offset, when the backplane supports replay */
-    offset?: string;
+    /** monotonic, cluster-wide offset, when the backplane supports replay */
+    offset?: number | string;
+}
+
+import type { MaybePromise } from "./types.ts";
+
+/**
+ * A connection's recoverable state, persisted while it is briefly disconnected
+ * so a reconnecting client can be restored (rooms re-joined + missed events
+ * replayed). Held for a short TTL by the backplane.
+ */
+export interface SessionState {
+    /** rooms (topics) the socket was subscribed to at disconnect */
+    rooms: string[];
 }
 
 export interface Backplane {
     /** unique id of this server node */
     readonly nodeId: string;
 
-    /** Fan a message out to all nodes; each delivers locally to subscribers. */
-    publish(topic: string, payload: string | Uint8Array): Promise<void>;
+    /**
+     * Fan a message out to all nodes; each delivers locally to subscribers.
+     * When `offset` is supplied (recovery-capable backplanes) the message is
+     * also appended to the replay log under that offset.
+     */
+    publish(
+        topic: string,
+        payload: string | Uint8Array,
+        offset?: number | string,
+    ): Promise<void>;
 
     /** Register the local delivery callback (called once by the adapter). */
     onMessage(handler: (message: BackplaneMessage) => void): void;
@@ -39,8 +59,29 @@ export interface Backplane {
     /** Rooms a socket currently belongs to. */
     rooms(socketId: string): Promise<string[]>;
 
-    /** Replay frames published to `topic` after `offset` (recovery backfill). */
-    replaySince?(topic: string, offset: string): Promise<BackplaneMessage[]>;
+    // --- connection-state-recovery (optional capability) ---------------------
+    // A backplane that implements these enables clients to recover missed
+    // events after a brief disconnect. Backplanes without them simply degrade
+    // to a clean resubscribe (recovered = 0).
+
+    /** Vend the next monotonic, cluster-wide offset for an outgoing event. */
+    assignOffset?(): MaybePromise<number | string>;
+
+    /**
+     * Replay buffered events for the given `topics` whose offset is strictly
+     * greater than `offset`, in global publish order.
+     */
+    replaySince?(
+        offset: number | string,
+        topics: string[],
+    ): Promise<BackplaneMessage[]>;
+
+    /** Persist a disconnecting connection's recoverable state for `ttlMs`. */
+    saveSession?(sessionId: string, state: SessionState): Promise<void>;
+    /** Load a reconnecting connection's state, or null if expired/unknown. */
+    loadSession?(sessionId: string): Promise<SessionState | null>;
+    /** Drop a session once it has been recovered (or on hard close). */
+    dropSession?(sessionId: string): Promise<void>;
 
     close(): Promise<void>;
 }
@@ -50,6 +91,21 @@ export interface Backplane {
  * node and tracks membership in memory. Behaviorally identical to the original
  * single-process pub/sub, but also powers presence/`roomMembers` on one node.
  */
+export interface LocalBackplaneOptions {
+    /**
+     * Connection-state-recovery tuning. Pass `false` to disable the replay log
+     * (smaller memory footprint, no recovery). Default: enabled.
+     */
+    recovery?:
+        | false
+        | {
+              /** max events retained in the replay log (default: 10_000) */
+              bufferSize?: number;
+              /** how long a disconnected session is recoverable (default: 120_000ms) */
+              sessionTTL?: number;
+          };
+}
+
 export class LocalBackplane implements Backplane {
     readonly nodeId = crypto.randomUUID();
 
@@ -57,12 +113,89 @@ export class LocalBackplane implements Backplane {
     #rooms = new Map<string, Set<string>>();
     #socketRooms = new Map<string, Set<string>>();
 
+    // recovery state
+    #recovery: boolean;
+    #bufferSize: number;
+    #sessionTTL: number;
+    #seq = 0;
+    #log: BackplaneMessage[] = [];
+    #sessions = new Map<
+        string,
+        { state: SessionState; timer: ReturnType<typeof setTimeout> }
+    >();
+
+    constructor(options: LocalBackplaneOptions = {}) {
+        this.#recovery = options.recovery !== false;
+        const rec = options.recovery === false ? undefined : options.recovery;
+        this.#bufferSize = rec?.bufferSize ?? 10_000;
+        this.#sessionTTL = rec?.sessionTTL ?? 120_000;
+    }
+
     onMessage(handler: (message: BackplaneMessage) => void): void {
         this.#handler = handler;
     }
 
-    async publish(topic: string, payload: string | Uint8Array): Promise<void> {
-        this.#handler?.({ topic, payload, origin: this.nodeId });
+    async publish(
+        topic: string,
+        payload: string | Uint8Array,
+        offset?: number | string,
+    ): Promise<void> {
+        const message: BackplaneMessage = {
+            topic,
+            payload,
+            origin: this.nodeId,
+            offset,
+        };
+        if (this.#recovery && offset !== undefined) {
+            this.#log.push(message);
+            if (this.#log.length > this.#bufferSize)
+                this.#log.splice(0, this.#log.length - this.#bufferSize);
+        }
+        this.#handler?.(message);
+    }
+
+    assignOffset(): number {
+        return ++this.#seq;
+    }
+
+    async replaySince(
+        offset: number | string,
+        topics: string[],
+    ): Promise<BackplaneMessage[]> {
+        if (!this.#recovery) return [];
+        const since = Number(offset);
+        const wanted = new Set(topics);
+        return this.#log.filter(
+            (m) =>
+                m.offset !== undefined &&
+                Number(m.offset) > since &&
+                wanted.has(m.topic),
+        );
+    }
+
+    async saveSession(sessionId: string, state: SessionState): Promise<void> {
+        if (!this.#recovery) return;
+        this.#clearSessionTimer(sessionId);
+        const timer = setTimeout(() => {
+            this.#sessions.delete(sessionId);
+        }, this.#sessionTTL);
+        // don't keep the process alive just for a recovery window
+        (timer as { unref?: () => void }).unref?.();
+        this.#sessions.set(sessionId, { state, timer });
+    }
+
+    async loadSession(sessionId: string): Promise<SessionState | null> {
+        return this.#sessions.get(sessionId)?.state ?? null;
+    }
+
+    async dropSession(sessionId: string): Promise<void> {
+        this.#clearSessionTimer(sessionId);
+        this.#sessions.delete(sessionId);
+    }
+
+    #clearSessionTimer(sessionId: string): void {
+        const existing = this.#sessions.get(sessionId);
+        if (existing) clearTimeout(existing.timer);
     }
 
     async addToRoom(topic: string, socketId: string): Promise<void> {

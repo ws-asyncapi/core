@@ -125,8 +125,8 @@ export function getAsyncApiDocument(
         }
 
         if (channel["~"].rpc.size > 0) {
-            for (const [name, { input, output }] of channel["~"].rpc) {
-                operations[toPascalCase(`${channel.name}_${name}`)] = {
+            for (const [name, { input, output, errors }] of channel["~"].rpc) {
+                const operation: OperationsObject[string] = {
                     action: "receive",
                     channel: {
                         $ref: `#/channels/${channel.name}`,
@@ -156,6 +156,25 @@ export function getAsyncApiDocument(
                 messages[toPascalCase(`${name}_reply`)] = {
                     payload: toLibrarySpec(name, output),
                 };
+
+                // Declared, recoverable errors → one message per code plus an
+                // `x-ws-asyncapi-errors` index the CLI reads to emit the typed
+                // error union on the generated client.
+                if (errors && Object.keys(errors).length > 0) {
+                    const errorIndex: Record<string, { $ref: string }> = {};
+                    for (const [code, schema] of Object.entries(errors)) {
+                        const msgName = toPascalCase(`${name}_error_${code}`);
+                        messages[msgName] = {
+                            payload: toLibrarySpec(code, schema),
+                        };
+                        errorIndex[code] = {
+                            $ref: `#/channels/${channel.name}/messages/${msgName}`,
+                        };
+                    }
+                    operation["x-ws-asyncapi-errors"] = errorIndex;
+                }
+
+                operations[toPascalCase(`${channel.name}_${name}`)] = operation;
             }
         }
     }

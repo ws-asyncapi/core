@@ -15,7 +15,7 @@ export const PROTOCOL_VERSION = 1;
  *
  * Wire shapes (field names are documentation only — frames are positional):
  * ```
- * Event    [0, name, payload]
+ * Event    [0, name, payload, offset?]
  * Command  [1, name, payload]
  * Request  [2, name, corrId, payload]
  * Reply    [3, corrId, payload]
@@ -65,7 +65,15 @@ export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode] | (string & {
 
 // --- Frame tuple types -------------------------------------------------------
 
-export type EventFrame = [Frame.Event, string, unknown];
+/**
+ * Server→client event. The optional 4th element is the recovery offset, present
+ * only when the active backplane supports connection-state-recovery; the client
+ * tracks the highest offset it has seen and replays missed events from it after
+ * a reconnect (see {@link Frame.Hello}).
+ */
+export type EventFrame =
+    | [Frame.Event, string, unknown]
+    | [Frame.Event, string, unknown, number | string];
 export type CommandFrame = [Frame.Command, string, unknown];
 export type RequestFrame = [Frame.Request, string, number, unknown];
 export type ReplyFrame = [Frame.Reply, number, unknown];

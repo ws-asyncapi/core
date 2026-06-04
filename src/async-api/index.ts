@@ -71,6 +71,7 @@ export function getAsyncApiDocument(
             ...channel["~"].server.keys(),
             ...channel["~"].client.keys(),
             ...channel["~"].rpc.keys(),
+            ...channel["~"].serverRpc.keys(),
         ];
         const duplicates = [
             ...new Set(allNames.filter((n, i) => allNames.indexOf(n) !== i)),
@@ -188,6 +189,45 @@ export function getAsyncApiDocument(
                 }
 
                 operations[toPascalCase(`${channel.name}_${name}`)] = operation;
+            }
+        }
+
+        if (channel["~"].serverRpc.size > 0) {
+            for (const [name, { input, output }] of channel["~"].serverRpc) {
+                operations[toPascalCase(`${channel.name}_${name}`)] = {
+                    // server→client RPC: the server sends the request…
+                    action: "send",
+                    channel: {
+                        $ref: `#/channels/${channel.name}`,
+                    },
+                    messages: [
+                        {
+                            $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_request`)}`,
+                        },
+                    ],
+                    // …and the client replies
+                    reply: {
+                        channel: {
+                            $ref: `#/channels/${channel.name}`,
+                        },
+                        messages: [
+                            {
+                                $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_reply`)}`,
+                            },
+                        ],
+                    },
+                    "x-ws-asyncapi-operation": 1,
+                    "x-ws-asyncapi-server-rpc": 1,
+                };
+
+                messages[toPascalCase(`${name}_request`)] = {
+                    // server→client request: wire carries the input shape
+                    payload: toLibrarySpec(name, input, "input"),
+                };
+                messages[toPascalCase(`${name}_reply`)] = {
+                    // client→server reply: wire carries the output shape
+                    payload: toLibrarySpec(name, output, "output"),
+                };
             }
         }
     }

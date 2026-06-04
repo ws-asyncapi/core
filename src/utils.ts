@@ -43,6 +43,8 @@ declare module "asyncapi-types" {
         "x-ws-asyncapi-operation": 1;
         // marks an operation as a request/response RPC (carries a `reply`)
         "x-ws-asyncapi-rpc"?: 1;
+        // marks a server→client RPC (action "send" with a `reply`)
+        "x-ws-asyncapi-server-rpc"?: 1;
         // declared RPC error codes → message $ref for the error's `data` schema
         "x-ws-asyncapi-errors"?: Record<string, { $ref: string }>;
     }

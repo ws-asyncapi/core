@@ -20,9 +20,13 @@ export * from "./wire.ts";
 export * from "./backplane.ts";
 export * from "./schema.ts";
 export * from "./dispatch.ts";
+export * from "./outbound.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
-export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;
+export type AnyChannel = Channel<
+    // biome-ignore format: 10 positional anys
+    any, any, any, any, any, any, any, any, any, any
+>;
 
 /**
  * Turn a channel address into the literal pattern a client connects to:
@@ -59,7 +63,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
     infer _Params,
     // biome-ignore lint/correctness/noUnusedVariables: positional infer
     infer _Data,
-    infer RpcMap
+    infer RpcMap,
+    infer ServerRpcMap
 >
     ? {
           query: Query;
@@ -68,8 +73,10 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
           commandMap: ClientData;
           /** events the client receives (server→client) */
           eventMap: ServerData;
-          /** request/response RPCs: `{ input; output; errors }` per name */
+          /** request/response RPCs the client calls: `{ input; output; errors }` */
           rpcMap: RpcMap;
+          /** server→client RPCs the client answers: `{ input; output }` per name */
+          serverRpcMap: ServerRpcMap;
           /** the literal address pattern, e.g. `` `/chat/${string}` `` */
           address: Path extends string ? AddressPattern<Path> : string;
       }
@@ -87,6 +94,13 @@ export interface RpcDefinition {
     errors?: Record<string, AnySchema>;
     // biome-ignore lint/suspicious/noExplicitAny: stored handler is type-erased
     handler: RpcHandler<any, any, any, any, any, any, any, any>;
+}
+
+/** Stored server→client RPC definition (input/output schemas only; the handler
+ *  lives on the client). Used by the doc generator to emit the contract. */
+export interface ServerRpcDefinition {
+    input: AnySchema;
+    output: AnySchema;
 }
 
 // TODO: maybe use `defineOperation`
@@ -107,6 +121,12 @@ export class Channel<
         { input: unknown; output: unknown; errors: Record<string, unknown> }
         // biome-ignore lint/complexity/noBannedTypes: <explanation>
     > = {},
+    // 10th generic: accumulated server->client RPC map (name -> { input; output }).
+    ServerRpcMap extends Record<
+        string,
+        { input: unknown; output: unknown }
+        // biome-ignore lint/complexity/noBannedTypes: <explanation>
+    > = {},
 > {
     public "~" = {
         client: new Map<
@@ -124,6 +144,7 @@ export class Channel<
         >(),
         server: new Map<string, AnySchema | undefined>(),
         rpc: new Map<string, RpcDefinition>(),
+        serverRpc: new Map<string, ServerRpcDefinition>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
         onOpen: undefined as
@@ -204,7 +225,8 @@ export class Channel<
         Path,
         Params,
         Data,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         this["~"].query = query;
 
@@ -223,7 +245,8 @@ export class Channel<
         Path,
         Params,
         Data,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         this["~"].headers = headers;
 
@@ -250,7 +273,8 @@ export class Channel<
         Path,
         Params,
         Data,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         this["~"].server.set(name, validation);
 
@@ -268,6 +292,7 @@ export class Channel<
             {
                 client: WebsocketClientData;
                 server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
             },
             Topics,
             Message,
@@ -288,7 +313,8 @@ export class Channel<
         Path,
         Params,
         Data,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         this["~"].client.set(name, { handler, validation });
 
@@ -321,6 +347,7 @@ export class Channel<
             {
                 client: WebsocketClientData;
                 server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
             },
             Topics,
             InferOut<Input>,
@@ -348,7 +375,8 @@ export class Channel<
                 output: InferOut<Output>;
                 errors: { [C in keyof Errors]: InferOut<Errors[C]> };
             };
-        }
+        },
+        ServerRpcMap
     > {
         this["~"].rpc.set(name, {
             input,
@@ -362,11 +390,47 @@ export class Channel<
         return this as any;
     }
 
+    /**
+     * Declares a **server→client** request/response (acknowledged RPC). The
+     * server calls it on a connection via `ws.request(name, input)` and awaits
+     * the client's typed reply; the client answers it with
+     * `client.onRequest(name, (input) => output)`. The reverse direction of
+     * {@link rpc}.
+     */
+    serverRpc<
+        Name extends string,
+        Input extends AnySchema,
+        Output extends AnySchema,
+    >(
+        name: Name,
+        input: Input,
+        output: Output,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data,
+        RpcMap,
+        ServerRpcMap & {
+            [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
+        }
+    > {
+        this["~"].serverRpc.set(name, { input, output });
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
     onOpen(
         handler: OnOpenHandler<
             {
                 client: WebsocketClientData;
                 server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
             },
             Topics,
             Query,
@@ -385,6 +449,7 @@ export class Channel<
             {
                 client: WebsocketClientData;
                 server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
             },
             Topics,
             Query,
@@ -433,7 +498,8 @@ export class Channel<
         Path,
         Params,
         Data,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;
@@ -450,7 +516,8 @@ export class Channel<
         Path,
         Params,
         Data & DataThis,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         // @ts-expect-error handler Data variance
         this["~"].beforeUpgrade = handler;
@@ -478,7 +545,8 @@ export class Channel<
         Path,
         Params,
         Data & Derived,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -502,7 +570,8 @@ export class Channel<
         Path,
         Params,
         Data & Derived,
-        RpcMap
+        RpcMap,
+        ServerRpcMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -522,6 +591,7 @@ export class Channel<
                 {
                     client: WebsocketClientData;
                     server: WebsocketServerData;
+                    serverRpc: ServerRpcMap;
                 },
                 Topics
             >;
@@ -544,6 +614,7 @@ export class Channel<
                 {
                     client: WebsocketClientData;
                     server: WebsocketServerData;
+                    serverRpc: ServerRpcMap;
                 },
                 Topics
             >;

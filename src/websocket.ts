@@ -3,6 +3,9 @@ export interface WebsocketDataType {
     client: Record<string, any>;
     // biome-ignore lint/suspicious/noExplicitAny: <explanation>
     server: Record<string, any>;
+    /** server→client (acknowledged) RPCs: `{ input; output }` per name */
+    // biome-ignore lint/suspicious/noExplicitAny: per-channel shapes
+    serverRpc?: Record<string, { input: any; output: any }>;
 }
 
 export abstract class WebSocketImplementation<
@@ -22,6 +25,19 @@ export abstract class WebSocketImplementation<
 
     /** Low-level: send already-encoded bytes (used to replay buffered frames). */
     abstract sendRaw(data: string | Uint8Array): void;
+
+    /**
+     * Server→client RPC: ask this client and await its typed reply. Mirrors the
+     * client's `request()` in the other direction. Rejects with an `RpcError`
+     * on the client throwing, a timeout, or disconnect.
+     */
+    abstract request<
+        Name extends keyof NonNullable<WebsocketData["serverRpc"]>,
+    >(
+        name: Name,
+        input: NonNullable<WebsocketData["serverRpc"]>[Name]["input"],
+        options?: { timeout?: number },
+    ): Promise<NonNullable<WebsocketData["serverRpc"]>[Name]["output"]>;
 
     /** Connection-unique socket id (used for room membership / presence). */
     abstract readonly id: string;

@@ -9,6 +9,7 @@
  */
 import type { Backplane } from "./backplane.ts";
 import type { AnyChannel } from "./index.ts";
+import type { OutboundRpc } from "./outbound.ts";
 import { validate } from "./schema.ts";
 import type { RequestData } from "./types.ts";
 import type { WebSocketImplementation } from "./websocket.ts";
@@ -27,6 +28,8 @@ export interface Connection {
     data: any;
     /** recovery session id, assigned on the Hello handshake */
     sessionId?: string;
+    /** pending server→client (outbound) RPCs for this connection */
+    outbound?: OutboundRpc;
 }
 
 /** Run the channel's `.derive`/`.resolve` chain, then `onOpen`. */
@@ -59,6 +62,8 @@ export async function closeConnection(
         request: conn.request,
         data: conn.data,
     });
+    // fail any in-flight server→client requests
+    conn.outbound?.rejectAll(new RpcError("INTERNAL", "connection closed"));
     // persist recoverable state (rooms) before dropping the socket
     if (conn.sessionId && backplane.saveSession) {
         const rooms = await backplane.rooms(conn.ws.id);
@@ -108,6 +113,17 @@ export async function dispatchFrame(
         }
         case Frame.Pong:
             return;
+        case Frame.Reply: {
+            // response to a server→client request we initiated
+            const [, corrId, payload] = frame;
+            conn.outbound?.resolve(corrId, payload);
+            return;
+        }
+        case Frame.Error: {
+            const [, corrId, code, message, errData] = frame;
+            conn.outbound?.reject(corrId, new RpcError(code, message, errData));
+            return;
+        }
         case Frame.Hello: {
             // Connection-state-recovery handshake: re-join the session's rooms
             // and replay missed events, else a clean Welcome.

@@ -153,12 +153,14 @@ export type GetWebSocketType<ChannelThis extends AnyChannel> =
         infer Params,
         infer Data,
         // biome-ignore lint/correctness/noUnusedVariables: 9th slot (RpcMap), unused here
-        infer _RpcMap
+        infer _RpcMap,
+        infer ServerRpcMap
     >
         ? WebSocketImplementation<
               {
                   client: WebsocketClientData;
                   server: WebsocketServerData;
+                  serverRpc: ServerRpcMap;
               },
               Topics
           >

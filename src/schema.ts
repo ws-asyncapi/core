@@ -102,14 +102,51 @@ export async function validate(
 }
 
 /**
- * Produce a JSON Schema for the AsyncAPI contract / CLI codegen.
+ * JSON Schema converter for a validator that implements StandardSchemaV1
+ * (validation) but **not** StandardJSONSchemaV1 (native JSON Schema) — e.g.
+ * Valibot, whose converter ships separately in `@valibot/to-json-schema`.
+ * Return `undefined` to fall through.
+ */
+export type VendorJsonSchemaConverter = (
+    schema: StandardSchemaV1,
+    io: SchemaIO,
+    target: JsonSchemaTarget,
+) => object | undefined;
+
+const vendorConverters = new Map<string, VendorJsonSchemaConverter>();
+
+/**
+ * Register a JSON Schema converter, keyed by `~standard.vendor`, for validators
+ * that can validate but can't emit JSON Schema themselves. Call once at startup:
  *
- * - Standard Schema validators that implement **StandardJSONSchemaV1**
- *   (Zod ≥4.2, ArkType ≥2.1.28, Valibot ≥1.2) convert natively for the given
- *   `io` direction and `target` draft.
- * - Raw TypeBox schemas are already JSON Schema — embedded as-is.
- * - A Standard Schema without JSON-Schema support yields `{}` (runtime
- *   validation still works; the generated type for that message is `unknown`).
+ * ```ts
+ * import { toJsonSchema } from "@valibot/to-json-schema";
+ * import { registerJsonSchemaConverter } from "ws-asyncapi";
+ * registerJsonSchemaConverter("valibot", (s) => toJsonSchema(s as never));
+ * ```
+ */
+export function registerJsonSchemaConverter(
+    vendor: string,
+    convert: VendorJsonSchemaConverter,
+): void {
+    vendorConverters.set(vendor, convert);
+}
+
+function stripDialect(schema: object): object {
+    const { $schema, ...body } = schema as Record<string, unknown>;
+    return body;
+}
+
+/**
+ * Produce a JSON Schema for the AsyncAPI contract / CLI codegen. Resolution
+ * ladder:
+ *  1. **StandardJSONSchemaV1** — native `~standard.jsonSchema[io]()`
+ *     (Zod ≥4.2, ArkType ≥2.1.28).
+ *  2. **Registered vendor converter** — for validators that validate but emit
+ *     JSON Schema elsewhere (e.g. Valibot via `@valibot/to-json-schema`); see
+ *     {@link registerJsonSchemaConverter}.
+ *  3. **Raw TypeBox** — already JSON Schema, embedded as-is.
+ *  4. **`{}`** — runtime validation still works; the generated type is `unknown`.
  */
 export function toJsonSchema(
     schema: AnySchema,
@@ -117,24 +154,25 @@ export function toJsonSchema(
     target: JsonSchemaTarget = "draft-07",
 ): object {
     if (isStandardSchema(schema)) {
-        const converter = (
-            schema["~standard"] as {
-                jsonSchema?: {
-                    input?: (o: { target: string }) => object;
-                    output?: (o: { target: string }) => object;
-                };
-            }
-        ).jsonSchema;
-        const convert = converter?.[io] ?? converter?.output ?? converter?.input;
-        if (convert) {
-            const { $schema, ...body } = convert({ target }) as Record<
-                string,
-                unknown
-            >;
-            return body;
-        }
+        const std = schema["~standard"] as {
+            vendor?: string;
+            jsonSchema?: {
+                input?: (o: { target: string }) => object;
+                output?: (o: { target: string }) => object;
+            };
+        };
+        // 1. native StandardJSONSchemaV1
+        const convert = std.jsonSchema?.[io] ?? std.jsonSchema?.output;
+        if (convert) return stripDialect(convert({ target }));
+        // 2. registered vendor converter
+        const vendorConvert = std.vendor
+            ? vendorConverters.get(std.vendor)
+            : undefined;
+        const out = vendorConvert?.(schema, io, target);
+        if (out) return stripDialect(out);
+        // 4. unknown
         return {};
     }
-    // TypeBox: a TSchema is valid JSON Schema; drop the [Kind] symbols
+    // 3. TypeBox: a TSchema is valid JSON Schema; drop the [Kind] symbols
     return JSON.parse(JSON.stringify(schema)) as object;
 }

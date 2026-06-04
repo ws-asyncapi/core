@@ -23,6 +23,57 @@ export * from "./schema.ts";
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;
 
+/**
+ * Turn a channel address into the literal pattern a client connects to:
+ * `"/chat/:room"` → `` `/chat/${string}` ``.
+ */
+export type AddressPattern<P extends string> =
+    P extends `${infer Head}:${string}/${infer Rest}`
+        ? `${Head}${string}/${AddressPattern<Rest>}`
+        : P extends `${infer Head}:${string}`
+          ? `${Head}${string}`
+          : P;
+
+/**
+ * Derive the typed client shape directly from a server {@link Channel} type —
+ * no codegen. Use with `typeof channel`:
+ *
+ * ```ts
+ * import { createClient } from "@ws-asyncapi/client";
+ * const client = createClient<typeof chat>("ws://localhost:3000", "/chat/1");
+ * ```
+ *
+ * Yields `{ commandMap, eventMap, rpcMap, query, headers, address }` — the same
+ * contract the CLI-generated `WebsocketAsyncAPIMap` provides, inferred instead.
+ */
+export type InferClient<C extends AnyChannel> = C extends Channel<
+    infer Query,
+    infer Headers,
+    infer ClientData,
+    infer ServerData,
+    // biome-ignore lint/correctness/noUnusedVariables: positional infer
+    infer _Topics,
+    infer Path,
+    // biome-ignore lint/correctness/noUnusedVariables: positional infer
+    infer _Params,
+    // biome-ignore lint/correctness/noUnusedVariables: positional infer
+    infer _Data,
+    infer RpcMap
+>
+    ? {
+          query: Query;
+          headers: Headers;
+          /** commands the client sends (client→server, fire-and-forget) */
+          commandMap: ClientData;
+          /** events the client receives (server→client) */
+          eventMap: ServerData;
+          /** request/response RPCs: `{ input; output; errors }` per name */
+          rpcMap: RpcMap;
+          /** the literal address pattern, e.g. `` `/chat/${string}` `` */
+          address: Path extends string ? AddressPattern<Path> : string;
+      }
+    : never;
+
 /** Stored RPC definition (input/output schemas + handler) on a channel. */
 export interface RpcDefinition {
     input: AnySchema;
@@ -206,8 +257,12 @@ export class Channel<
         return this as any;
     }
 
-    clientMessage<Validation extends AnySchema, Message = InferOut<Validation>>(
-        name: string,
+    clientMessage<
+        Name extends string,
+        Validation extends AnySchema,
+        Message = InferOut<Validation>,
+    >(
+        name: Name,
         handler: MessageHandler<
             {
                 client: WebsocketClientData;
@@ -224,7 +279,9 @@ export class Channel<
     ): Channel<
         Query,
         Headers,
-        WebsocketClientData,
+        // accumulate the command's *input* type (what the client sends) so the
+        // command map is inferable directly from the channel (codegen-free)
+        WebsocketClientData & { [k in Name]: InferIn<Validation> },
         WebsocketServerData,
         Topics,
         Path,

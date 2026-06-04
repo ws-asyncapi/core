@@ -32,11 +32,19 @@ export interface Connection {
     outbound?: OutboundRpc;
 }
 
+/** Reserved per-socket room so a socket can be addressed directly by id
+ *  (`channel.toSocket(id, …)`), cluster-wide, through the normal publish path. */
+export function perSocketRoom(socketId: string): string {
+    return `#sid:${socketId}`;
+}
+
 /** Run the channel's `.derive`/`.resolve` chain, then `onOpen`. */
 export async function openConnection(
     channel: AnyChannel,
     conn: Connection,
 ): Promise<void> {
+    // auto-join the per-socket room so targeted sends reach this socket
+    conn.ws.subscribe(perSocketRoom(conn.ws.id) as never);
     let data = conn.data ?? {};
     for (const derive of channel["~"].derives) {
         const result = await derive({ request: conn.request, data });
@@ -64,9 +72,12 @@ export async function closeConnection(
     });
     // fail any in-flight server→client requests
     conn.outbound?.rejectAll(new RpcError("INTERNAL", "connection closed"));
-    // persist recoverable state (rooms) before dropping the socket
+    // persist recoverable state (rooms) before dropping the socket — but not
+    // the per-socket room (it's keyed by the old id, which won't recur)
     if (conn.sessionId && backplane.saveSession) {
-        const rooms = await backplane.rooms(conn.ws.id);
+        const rooms = (await backplane.rooms(conn.ws.id)).filter(
+            (r) => !r.startsWith("#sid:"),
+        );
         if (rooms.length > 0)
             await backplane.saveSession(conn.sessionId, { rooms });
     }

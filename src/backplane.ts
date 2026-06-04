@@ -15,6 +15,8 @@ export interface BackplaneMessage {
     origin: string;
     /** monotonic, cluster-wide offset, when the backplane supports replay */
     offset?: number | string;
+    /** socket ids to skip on local delivery (e.g. exclude the sender) */
+    except?: string[];
 }
 
 import type { MaybePromise } from "./types.ts";
@@ -42,6 +44,7 @@ export interface Backplane {
         topic: string,
         payload: string | Uint8Array,
         offset?: number | string,
+        except?: string[],
     ): Promise<void>;
 
     /** Register the local delivery callback (called once by the adapter). */
@@ -139,12 +142,14 @@ export class LocalBackplane implements Backplane {
         topic: string,
         payload: string | Uint8Array,
         offset?: number | string,
+        except?: string[],
     ): Promise<void> {
         const message: BackplaneMessage = {
             topic,
             payload,
             origin: this.nodeId,
             offset,
+            except,
         };
         if (this.#recovery && offset !== undefined) {
             this.#log.push(message);

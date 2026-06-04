@@ -1,5 +1,6 @@
 import type { Static, TObject } from "@sinclair/typebox";
 import type { ChannelObject } from "asyncapi-types";
+import { perSocketRoom } from "./dispatch.ts";
 import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
     BeforeUpgradeHandler,
@@ -81,6 +82,13 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
           address: Path extends string ? AddressPattern<Path> : string;
       }
     : never;
+
+/** A socket as seen by server-side listing (`channel.fetchSockets`). */
+export interface RemoteSocketInfo {
+    id: string;
+    /** rooms (topics) the socket is in, excluding its reserved per-socket room */
+    rooms: string[];
+}
 
 /** Stored RPC definition (input/output schemas + handler) on a channel. */
 export interface RpcDefinition {
@@ -170,6 +178,10 @@ export class Channel<
         // biome-ignore lint/suspicious/noExplicitAny: type-erased adapter seam
         globalPublish: undefined as
             | ((topic: any, type: any, message: any) => void)
+            | undefined,
+        // adapter-provided: cluster-wide socket listing (presence / fetchSockets)
+        fetchSockets: undefined as
+            | ((room?: string) => Promise<RemoteSocketInfo[]>)
             | undefined,
         beforeUpgrade: undefined as
             | BeforeUpgradeHandler<Query, Headers, Params, Data>
@@ -484,6 +496,36 @@ export class Channel<
 
         // @ts-expect-error variadic spread into type-erased seam
         this["~"].globalPublish(topic, name, ...message);
+    }
+
+    /**
+     * Send an event to a single socket by id, anywhere in the cluster (the
+     * Socket.IO `io.to(socketId).emit(...)` equivalent). Routed through the
+     * socket's reserved per-socket room.
+     */
+    toSocket<Name extends keyof WebsocketServerData & string>(
+        socketId: string,
+        name: Name,
+        ...message: WebsocketServerData[Name] extends never
+            ? []
+            : [WebsocketServerData[Name]]
+    ): void {
+        if (!this["~"].globalPublish) {
+            console.error(
+                "Adapter does not support global publish or not initialized",
+            );
+            return;
+        }
+        this["~"].globalPublish(perSocketRoom(socketId), name, message[0]);
+    }
+
+    /**
+     * List sockets cluster-wide (presence). With `room`, only sockets in that
+     * room; otherwise every connected socket. Returns ids + their rooms.
+     */
+    fetchSockets(room?: Topics): Promise<RemoteSocketInfo[]> {
+        if (!this["~"].fetchSockets) return Promise.resolve([]);
+        return this["~"].fetchSockets(room as string | undefined);
     }
 
     /**

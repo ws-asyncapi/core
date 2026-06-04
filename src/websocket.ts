@@ -53,6 +53,18 @@ export abstract class WebSocketImplementation<
             : [WebsocketData["server"][T]]
     ): void;
 
+    /**
+     * Like {@link publish}, but excludes this socket from delivery — the
+     * Socket.IO `socket.broadcast.to(topic).emit(...)` equivalent.
+     */
+    abstract broadcast<T extends keyof WebsocketData["server"]>(
+        topic: Topics,
+        type: T,
+        ...data: WebsocketData["server"][T] extends never
+            ? []
+            : [WebsocketData["server"][T]]
+    ): void;
+
     /** Cluster-wide socket ids currently in `topic` (presence / fetchSockets). */
     abstract roomMembers(topic: Topics): Promise<string[]>;
 

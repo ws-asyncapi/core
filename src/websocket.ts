@@ -16,6 +16,13 @@ export abstract class WebSocketImplementation<
             : [WebsocketData["server"][T]]
     ): void;
 
+    /** Low-level: encode and send any wire frame (used by the dispatcher). */
+    // biome-ignore lint/suspicious/noExplicitAny: AnyFrame from ./wire.ts
+    abstract sendFrame(frame: any): void;
+
+    /** Low-level: send already-encoded bytes (used to replay buffered frames). */
+    abstract sendRaw(data: string | Uint8Array): void;
+
     /** Connection-unique socket id (used for room membership / presence). */
     abstract readonly id: string;
 

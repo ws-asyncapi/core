@@ -19,6 +19,7 @@ export * from "./types.ts";
 export * from "./wire.ts";
 export * from "./backplane.ts";
 export * from "./schema.ts";
+export * from "./dispatch.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;

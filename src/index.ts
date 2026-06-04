@@ -22,6 +22,7 @@ export * from "./backplane.ts";
 export * from "./schema.ts";
 export * from "./dispatch.ts";
 export * from "./outbound.ts";
+export * from "./emit.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<

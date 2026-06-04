@@ -1,5 +1,5 @@
-import type { TSchema } from "@sinclair/typebox";
 import type { AnyChannel, Channel } from "./index.ts";
+import type { AnySchema } from "./schema.ts";
 import type {
     WebSocketImplementation,
     WebsocketDataType,
@@ -99,7 +99,7 @@ export interface MessageHandlerSchema<
         Params,
         Data
     >;
-    validation?: TSchema;
+    validation?: AnySchema;
 }
 
 /**

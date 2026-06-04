@@ -1,5 +1,6 @@
-import type { Static, TObject, TSchema } from "@sinclair/typebox";
+import type { Static, TObject } from "@sinclair/typebox";
 import type { ChannelObject } from "asyncapi-types";
+import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
     BeforeUpgradeHandler,
     ExtractRouteParams,
@@ -17,20 +18,21 @@ export * from "./websocket.ts";
 export * from "./types.ts";
 export * from "./wire.ts";
 export * from "./backplane.ts";
+export * from "./schema.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<any, any, any, any, any, any, any, any, any>;
 
 /** Stored RPC definition (input/output schemas + handler) on a channel. */
 export interface RpcDefinition {
-    input: TSchema;
-    output: TSchema;
+    input: AnySchema;
+    output: AnySchema;
     /**
      * Declared, recoverable error codes for this RPC, each with the schema of
      * its `data` payload. Surfaced in the contract + generated client so the
      * caller gets a typed, discriminated error union (see {@link Channel.rpc}).
      */
-    errors?: Record<string, TSchema>;
+    errors?: Record<string, AnySchema>;
     // biome-ignore lint/suspicious/noExplicitAny: stored handler is type-erased
     handler: RpcHandler<any, any, any, any, any, any, any, any>;
 }
@@ -68,7 +70,7 @@ export class Channel<
                 Data
             >
         >(),
-        server: new Map<string, TSchema | undefined>(),
+        server: new Map<string, AnySchema | undefined>(),
         rpc: new Map<string, RpcDefinition>(),
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
@@ -179,7 +181,7 @@ export class Channel<
 
     serverMessage<
         Name extends string,
-        Validation extends TSchema | undefined = undefined,
+        Validation extends AnySchema | undefined = undefined,
     >(
         name: Name,
         validation?: Validation,
@@ -188,8 +190,8 @@ export class Channel<
         Headers,
         WebsocketClientData,
         WebsocketServerData & {
-            [k in Name]: Validation extends TSchema
-                ? Static<Validation>
+            [k in Name]: Validation extends AnySchema
+                ? InferOut<Validation>
                 : never;
         },
         Topics,
@@ -204,7 +206,7 @@ export class Channel<
         return this as any;
     }
 
-    clientMessage<Validation extends TSchema, Message = Static<Validation>>(
+    clientMessage<Validation extends AnySchema, Message = InferOut<Validation>>(
         name: string,
         handler: MessageHandler<
             {
@@ -249,10 +251,10 @@ export class Channel<
      */
     rpc<
         Name extends string,
-        Input extends TSchema,
-        Output extends TSchema,
+        Input extends AnySchema,
+        Output extends AnySchema,
         // biome-ignore lint/complexity/noBannedTypes: empty default for no errors
-        Errors extends Record<string, TSchema> = {},
+        Errors extends Record<string, AnySchema> = {},
     >(
         name: Name,
         input: Input,
@@ -263,8 +265,8 @@ export class Channel<
                 server: WebsocketServerData;
             },
             Topics,
-            Static<Input>,
-            Static<Output>,
+            InferOut<Input>,
+            InferOut<Output>,
             Query,
             Headers,
             Params,
@@ -282,9 +284,11 @@ export class Channel<
         Data,
         RpcMap & {
             [k in Name]: {
-                input: Static<Input>;
-                output: Static<Output>;
-                errors: { [C in keyof Errors]: Static<Errors[C]> };
+                // `input` is what the caller sends (pre-parse); `output` is what
+                // the caller receives (post-parse).
+                input: InferIn<Input>;
+                output: InferOut<Output>;
+                errors: { [C in keyof Errors]: InferOut<Errors[C]> };
             };
         }
     > {

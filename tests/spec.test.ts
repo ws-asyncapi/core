@@ -144,16 +144,13 @@ describe("AsyncAPI", () => {
                 "messages": {
                   "TestReallyReceive": {
                     "payload": {
-                      [Symbol(TypeBox.Kind)]: "Tuple",
                       "additionalItems": false,
                       "items": [
                         {
-                          [Symbol(TypeBox.Kind)]: "Literal",
                           "const": "test-really",
                           "type": "string",
                         },
                         {
-                          [Symbol(TypeBox.Kind)]: "Never",
                           "not": {},
                         },
                       ],
@@ -164,19 +161,15 @@ describe("AsyncAPI", () => {
                   },
                   "TestSend": {
                     "payload": {
-                      [Symbol(TypeBox.Kind)]: "Tuple",
                       "additionalItems": false,
                       "items": [
                         {
-                          [Symbol(TypeBox.Kind)]: "Literal",
                           "const": "test",
                           "type": "string",
                         },
                         {
-                          [Symbol(TypeBox.Kind)]: "Object",
                           "properties": {
                             "id": {
-                              [Symbol(TypeBox.Kind)]: "String",
                               "type": "string",
                             },
                           },

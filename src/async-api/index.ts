@@ -97,7 +97,12 @@ export function getAsyncApiDocument(
                 };
 
                 messages[toPascalCase(`${name}_send`)] = {
-                    payload: toLibrarySpec(name, validation ?? Type.Never()),
+                    // server→client event: wire carries the parsed/output shape
+                    payload: toLibrarySpec(
+                        name,
+                        validation ?? Type.Never(),
+                        "output",
+                    ),
                 };
             }
         }
@@ -119,7 +124,12 @@ export function getAsyncApiDocument(
                 };
 
                 messages[toPascalCase(`${name}_receive`)] = {
-                    payload: toLibrarySpec(name, validation ?? Type.Never()),
+                    // client→server command: wire carries the input shape
+                    payload: toLibrarySpec(
+                        name,
+                        validation ?? Type.Never(),
+                        "input",
+                    ),
                 };
             }
         }
@@ -151,10 +161,12 @@ export function getAsyncApiDocument(
                 };
 
                 messages[toPascalCase(`${name}_request`)] = {
-                    payload: toLibrarySpec(name, input),
+                    // client→server request: wire carries the input shape
+                    payload: toLibrarySpec(name, input, "input"),
                 };
                 messages[toPascalCase(`${name}_reply`)] = {
-                    payload: toLibrarySpec(name, output),
+                    // server→client reply: wire carries the output shape
+                    payload: toLibrarySpec(name, output, "output"),
                 };
 
                 // Declared, recoverable errors → one message per code plus an
@@ -165,7 +177,8 @@ export function getAsyncApiDocument(
                     for (const [code, schema] of Object.entries(errors)) {
                         const msgName = toPascalCase(`${name}_error_${code}`);
                         messages[msgName] = {
-                            payload: toLibrarySpec(code, schema),
+                            // server→client error: wire carries the output shape
+                            payload: toLibrarySpec(code, schema, "output"),
                         };
                         errorIndex[code] = {
                             $ref: `#/channels/${channel.name}/messages/${msgName}`,

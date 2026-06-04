@@ -1,5 +1,4 @@
-import type { TSchema } from "@sinclair/typebox";
-import { Type } from "@sinclair/typebox";
+import { type AnySchema, type SchemaIO, toJsonSchema } from "./schema.ts";
 
 export function getPathParams(path: string) {
     return path
@@ -12,8 +11,25 @@ export function toChannelExpression(path: string) {
     return path.replace(/:(\w+)/g, "{$1}");
 }
 
-export function toLibrarySpec(name: string, data: TSchema) {
-    return Type.Tuple([Type.Literal(name), data]);
+/**
+ * Wrap a message's schema in the discriminated tuple the wire + CLI expect:
+ * `[ {const: name}, <payload schema> ]`. Built as a plain draft-07 JSON Schema
+ * (array-form tuple) so any validator — Standard Schema or TypeBox — flows
+ * through {@link toJsonSchema}. `io` picks the input (client-sent) vs output
+ * (server-sent) shape for validators with transforms.
+ */
+export function toLibrarySpec(
+    name: string,
+    data: AnySchema,
+    io: SchemaIO = "output",
+) {
+    return {
+        type: "array",
+        minItems: 2,
+        maxItems: 2,
+        additionalItems: false,
+        items: [{ type: "string", const: name }, toJsonSchema(data, io)],
+    };
 }
 
 export function toPascalCase(str: string) {

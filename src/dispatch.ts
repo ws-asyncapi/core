@@ -45,6 +45,9 @@ export async function openConnection(
 ): Promise<void> {
     // auto-join the per-socket room so targeted sends reach this socket
     conn.ws.subscribe(perSocketRoom(conn.ws.id) as never);
+    // register in the channel's socket map (for server-side admin ops)
+    // biome-ignore lint/suspicious/noExplicitAny: ~ is type-erased
+    (channel as any)["~"].sockets.set(conn.ws.id, conn);
     let data = conn.data ?? {};
     for (const derive of channel["~"].derives) {
         const result = await derive({ request: conn.request, data });
@@ -70,6 +73,9 @@ export async function closeConnection(
         request: conn.request,
         data: conn.data,
     });
+    // deregister from the channel's socket map
+    // biome-ignore lint/suspicious/noExplicitAny: ~ is type-erased
+    (channel as any)["~"].sockets.delete(conn.ws.id);
     // fail any in-flight server→client requests
     conn.outbound?.rejectAll(new RpcError("INTERNAL", "connection closed"));
     // persist recoverable state (rooms) before dropping the socket — but not

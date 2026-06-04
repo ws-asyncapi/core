@@ -1,6 +1,7 @@
 import type { Static, TObject } from "@sinclair/typebox";
 import type { ChannelObject } from "asyncapi-types";
-import { perSocketRoom } from "./dispatch.ts";
+import type { NodeCommand } from "./command.ts";
+import { type Connection, perSocketRoom } from "./dispatch.ts";
 import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
     BeforeUpgradeHandler,
@@ -23,6 +24,7 @@ export * from "./schema.ts";
 export * from "./dispatch.ts";
 export * from "./outbound.ts";
 export * from "./emit.ts";
+export * from "./command.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<
@@ -154,6 +156,12 @@ export class Channel<
         server: new Map<string, AnySchema | undefined>(),
         rpc: new Map<string, RpcDefinition>(),
         serverRpc: new Map<string, ServerRpcDefinition>(),
+        // live local sockets on this channel (for server-side admin ops)
+        sockets: new Map<string, Connection>(),
+        // server↔server event handlers (serverSideEmit)
+        serverEvents: new Map<string, (data: unknown) => void>(),
+        // adapter-provided: publish a cross-node command on the command topic
+        sendCommand: undefined as ((cmd: NodeCommand) => void) | undefined,
         query: undefined as TObject | undefined,
         headers: undefined as TObject | undefined,
         onOpen: undefined as
@@ -527,6 +535,58 @@ export class Channel<
     fetchSockets(room?: Topics): Promise<RemoteSocketInfo[]> {
         if (!this["~"].fetchSockets) return Promise.resolve([]);
         return this["~"].fetchSockets(room as string | undefined);
+    }
+
+    /** Disconnect sockets cluster-wide — all, or only those in `room`. */
+    disconnectSockets(room?: Topics): void {
+        this["~"].sendCommand?.({
+            op: "disconnect",
+            channel: this.name,
+            room: (room as string | undefined) ?? null,
+        });
+    }
+
+    /** Make sockets (all, or those in `room`) join `rooms`, cluster-wide. */
+    socketsJoin(rooms: Topics | Topics[], room?: Topics): void {
+        this["~"].sendCommand?.({
+            op: "join",
+            channel: this.name,
+            room: (room as string | undefined) ?? null,
+            rooms: (Array.isArray(rooms) ? rooms : [rooms]) as string[],
+        });
+    }
+
+    /** Make sockets (all, or those in `room`) leave `rooms`, cluster-wide. */
+    socketsLeave(rooms: Topics | Topics[], room?: Topics): void {
+        this["~"].sendCommand?.({
+            op: "leave",
+            channel: this.name,
+            room: (room as string | undefined) ?? null,
+            rooms: (Array.isArray(rooms) ? rooms : [rooms]) as string[],
+        });
+    }
+
+    /**
+     * Emit an event to the **other** server nodes in the cluster (not clients).
+     * Handlers are registered with {@link onServerEvent}. The emitting node does
+     * not receive its own event.
+     */
+    serverSideEmit(event: string, data?: unknown): void {
+        this["~"].sendCommand?.({
+            op: "sse",
+            channel: this.name,
+            event,
+            data,
+        });
+    }
+
+    /** Handle a {@link serverSideEmit} event from another node. */
+    onServerEvent<T = unknown>(
+        event: string,
+        handler: (data: T) => void,
+    ): this {
+        this["~"].serverEvents.set(event, handler as (d: unknown) => void);
+        return this;
     }
 
     /**

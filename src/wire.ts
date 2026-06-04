@@ -22,7 +22,7 @@ export const PROTOCOL_VERSION = 1;
  * Error    [4, corrId, code, message, data?]
  * Ping     [5, ts]
  * Pong     [6, ts]
- * Hello    [7, sessionId | null, lastOffset | 0, protocolVersion]
+ * Hello    [7, sessionId | null, lastOffset | 0, protocolVersion, contractVersion?]
  * Welcome  [8, sessionId, recovered (0|1), serverOffset]
  * ```
  */
@@ -63,6 +63,19 @@ export const ErrorCode = {
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode] | (string & {});
 
+/**
+ * Application-defined WebSocket close codes (4000–4999 range). Used by the
+ * server to reject a connection during the Hello handshake; the resilient client
+ * treats these as *fatal* (it stops reconnecting, since retrying won't fix a
+ * version skew) and rejects `opened` with the close reason.
+ */
+export const CloseCode = {
+    /** client's wire protocol version doesn't match the server's */
+    PROTOCOL_MISMATCH: 4400,
+    /** client's contract hash doesn't match the server's (regenerate client) */
+    CONTRACT_MISMATCH: 4409,
+} as const;
+
 // --- Frame tuple types -------------------------------------------------------
 
 /**
@@ -88,7 +101,9 @@ export type ReplyFrame = [Frame.Reply, number, unknown];
 export type ErrorFrame = [Frame.Error, number, ErrorCode, string, unknown?];
 export type PingFrame = [Frame.Ping, number];
 export type PongFrame = [Frame.Pong, number];
-export type HelloFrame = [Frame.Hello, string | null, number | string, number];
+export type HelloFrame =
+    | [Frame.Hello, string | null, number | string, number]
+    | [Frame.Hello, string | null, number | string, number, string];
 export type WelcomeFrame = [Frame.Welcome, string, 0 | 1, number | string];
 
 export type AnyFrame =

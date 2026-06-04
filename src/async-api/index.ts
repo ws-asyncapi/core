@@ -7,6 +7,7 @@ import type {
     OperationsObject,
     ParameterObject,
 } from "asyncapi-types";
+import { contractHash } from "../contract.ts";
 import type { AnyChannel } from "../index.ts";
 import {
     getPathParams,
@@ -62,7 +63,10 @@ export function getAsyncApiDocument(
             },
             messages,
             parameters,
-        };
+            // contract hash for handshake version negotiation; the generated
+            // client embeds this so it can detect drift against the server.
+            "x-ws-asyncapi-contract-hash": contractHash(channel),
+        } as ChannelsObject[string];
 
         // Operation keys are `${channel}_${name}`, so a name reused across
         // server/client/rpc would silently overwrite another operation in the

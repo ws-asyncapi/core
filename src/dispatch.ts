@@ -8,13 +8,21 @@
  * lives here so it is implemented once and shared.
  */
 import type { Backplane } from "./backplane.ts";
+import { contractHash } from "./contract.ts";
 import { type CachedRpc, IdempotencyCache } from "./idempotency.ts";
 import type { AnyChannel } from "./index.ts";
 import type { OutboundRpc } from "./outbound.ts";
 import { validate } from "./schema.ts";
 import type { RequestData } from "./types.ts";
 import type { WebSocketImplementation } from "./websocket.ts";
-import { type AnyFrame, type ErrorCode, Frame, RpcError } from "./wire.ts";
+import {
+    type AnyFrame,
+    CloseCode,
+    type ErrorCode,
+    Frame,
+    PROTOCOL_VERSION,
+    RpcError,
+} from "./wire.ts";
 
 /** Mutable per-connection state shared across a socket's lifetime. */
 export interface Connection {
@@ -154,6 +162,45 @@ export async function dispatchFrame(
             return;
         }
         case Frame.Hello: {
+            // Version negotiation: reject incompatible clients up front with a
+            // clear close, instead of letting frames mis-parse later.
+            // Reject with a connection-level Error frame (corrId 0) *then* close.
+            // The frame is the reliable signal — some runtimes' WebSocket clients
+            // normalize custom close codes — while the close code (4400/4409)
+            // carries the same intent for browser/Node clients that preserve it.
+            const reject = (
+                closeCode: number,
+                errCode: ErrorCode,
+                message: string,
+            ) => {
+                wsi.sendFrame([Frame.Error, 0, errCode, message]);
+                wsi.close(closeCode, message);
+            };
+
+            const clientProto = frame[3];
+            if (
+                typeof clientProto === "number" &&
+                clientProto !== PROTOCOL_VERSION
+            ) {
+                reject(
+                    CloseCode.PROTOCOL_MISMATCH,
+                    "PROTOCOL_MISMATCH",
+                    `protocol version mismatch (server ${PROTOCOL_VERSION}, client ${clientProto})`,
+                );
+                return;
+            }
+            const clientContract = frame[4];
+            if (clientContract && clientContract !== contractHash(channel)) {
+                reject(
+                    CloseCode.CONTRACT_MISMATCH,
+                    "CONTRACT_MISMATCH",
+                    `contract mismatch — regenerate the client (server ${contractHash(
+                        channel,
+                    )}, client ${clientContract})`,
+                );
+                return;
+            }
+
             // Connection-state-recovery handshake: re-join the session's rooms
             // and replay missed events, else a clean Welcome.
             const requestedSid = frame[1];

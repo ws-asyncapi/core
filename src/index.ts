@@ -26,6 +26,7 @@ export * from "./outbound.ts";
 export * from "./emit.ts";
 export * from "./command.ts";
 export * from "./idempotency.ts";
+export * from "./contract.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<

@@ -123,6 +123,31 @@ export type RpcHandler<
     data: Data;
 }) => MaybePromise<Output>;
 
+/**
+ * Handler for a stream (`.stream()`). Same context as {@link RpcHandler}, but it
+ * returns an async iterable (typically an `async function*`) whose yielded values
+ * are each validated against `output` and pushed to the client as they arrive.
+ * The client consumes them with `for await`. If the consumer stops iterating, the
+ * iterator is `return()`-ed so a `try/finally` in the generator can clean up.
+ */
+export type StreamHandler<
+    WebsocketData extends WebsocketDataType,
+    Topics extends string,
+    Message,
+    Output,
+    Query extends unknown | undefined,
+    Headers extends unknown | undefined,
+    Params extends unknown | undefined,
+    Data,
+> = (data: {
+    ws: WebSocketImplementation<WebsocketData, Topics>;
+    message: Message;
+    request: RequestData<Query, Headers, Params>;
+    data: Data;
+    /** aborts when the client cancels or disconnects — wire long tasks to it */
+    signal: AbortSignal;
+}) => AsyncIterable<Output>;
+
 export type ExtractRouteParams<T> =
     T extends `${string}:${infer Param}/${infer Rest}`
         ? { [K in Param]: string } & ExtractRouteParams<Rest>
@@ -154,7 +179,9 @@ export type GetWebSocketType<ChannelThis extends AnyChannel> =
         infer Data,
         // biome-ignore lint/correctness/noUnusedVariables: 9th slot (RpcMap), unused here
         infer _RpcMap,
-        infer ServerRpcMap
+        infer ServerRpcMap,
+        // biome-ignore lint/correctness/noUnusedVariables: 11th slot (StreamMap), unused here
+        infer _StreamMap
     >
         ? WebSocketImplementation<
               {

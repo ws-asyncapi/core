@@ -12,6 +12,7 @@ import type {
     OnOpenHandler,
     RequestData,
     RpcHandler,
+    StreamHandler,
 } from "./types.ts";
 import type { WebsocketDataType } from "./websocket.ts";
 
@@ -27,11 +28,12 @@ export * from "./emit.ts";
 export * from "./command.ts";
 export * from "./idempotency.ts";
 export * from "./contract.ts";
+export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<
-    // biome-ignore format: 10 positional anys
-    any, any, any, any, any, any, any, any, any, any
+    // biome-ignore format: 11 positional anys
+    any, any, any, any, any, any, any, any, any, any, any
 >;
 
 /**
@@ -70,7 +72,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
     // biome-ignore lint/correctness/noUnusedVariables: positional infer
     infer _Data,
     infer RpcMap,
-    infer ServerRpcMap
+    infer ServerRpcMap,
+    infer StreamMap
 >
     ? {
           query: Query;
@@ -83,6 +86,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
           rpcMap: RpcMap;
           /** server→client RPCs the client answers: `{ input; output }` per name */
           serverRpcMap: ServerRpcMap;
+          /** server→client streams the client consumes: `{ input; output }` per name */
+          streamMap: StreamMap;
           /** the literal address pattern, e.g. `` `/chat/${string}` `` */
           address: Path extends string ? AddressPattern<Path> : string;
       }
@@ -116,6 +121,14 @@ export interface ServerRpcDefinition {
     output: AnySchema;
 }
 
+/** Stored stream definition (input/output schemas + async-generator handler). */
+export interface StreamDefinition {
+    input: AnySchema;
+    output: AnySchema;
+    // biome-ignore lint/suspicious/noExplicitAny: stored handler is type-erased
+    handler: StreamHandler<any, any, any, any, any, any, any, any>;
+}
+
 // TODO: maybe use `defineOperation`
 export class Channel<
     Query extends unknown | undefined,
@@ -140,6 +153,12 @@ export class Channel<
         { input: unknown; output: unknown }
         // biome-ignore lint/complexity/noBannedTypes: <explanation>
     > = {},
+    // 11th generic: accumulated stream map (name -> { input; output }).
+    StreamMap extends Record<
+        string,
+        { input: unknown; output: unknown }
+        // biome-ignore lint/complexity/noBannedTypes: <explanation>
+    > = {},
 > {
     public "~" = {
         client: new Map<
@@ -158,6 +177,7 @@ export class Channel<
         server: new Map<string, AnySchema | undefined>(),
         rpc: new Map<string, RpcDefinition>(),
         serverRpc: new Map<string, ServerRpcDefinition>(),
+        stream: new Map<string, StreamDefinition>(),
         // live local sockets on this channel (for server-side admin ops)
         sockets: new Map<string, Connection>(),
         // server↔server event handlers (serverSideEmit)
@@ -249,7 +269,8 @@ export class Channel<
         Params,
         Data,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         this["~"].query = query;
 
@@ -269,7 +290,8 @@ export class Channel<
         Params,
         Data,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         this["~"].headers = headers;
 
@@ -297,7 +319,8 @@ export class Channel<
         Params,
         Data,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         this["~"].server.set(name, validation);
 
@@ -337,7 +360,8 @@ export class Channel<
         Params,
         Data,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         this["~"].client.set(name, { handler, validation });
 
@@ -399,7 +423,8 @@ export class Channel<
                 errors: { [C in keyof Errors]: InferOut<Errors[C]> };
             };
         },
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         this["~"].rpc.set(name, {
             input,
@@ -440,9 +465,70 @@ export class Channel<
         RpcMap,
         ServerRpcMap & {
             [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
-        }
+        },
+        StreamMap
     > {
         this["~"].serverRpc.set(name, { input, output });
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /**
+     * Declares a **stream**: the client opens it with `client.stream(name, input)`
+     * and consumes a sequence of typed values with `for await`. The handler is an
+     * async generator — each `yield` is validated against `output` and pushed to
+     * the client as it arrives; returning ends the stream, throwing fails it with
+     * a typed error. If the consumer stops iterating (or disconnects), the handler
+     * is cancelled (its `signal` aborts and the generator is `return()`-ed, so a
+     * `try/finally` can clean up).
+     *
+     * ```ts
+     * .stream("ticks", z.object({}), z.object({ n: z.number() }),
+     *   async function* ({ signal }) {
+     *     for (let n = 0; !signal.aborted; n++) { yield { n }; await sleep(1000); }
+     *   })
+     * ```
+     */
+    stream<Name extends string, Input extends AnySchema, Output extends AnySchema>(
+        name: Name,
+        input: Input,
+        output: Output,
+        handler: StreamHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
+            },
+            Topics,
+            InferOut<Input>,
+            InferOut<Output>,
+            Query,
+            Headers,
+            Params,
+            Data
+        >,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data,
+        RpcMap,
+        ServerRpcMap,
+        StreamMap & {
+            [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
+        }
+    > {
+        this["~"].stream.set(name, {
+            input,
+            output,
+            // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+            handler: handler as any,
+        });
 
         // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
@@ -604,7 +690,8 @@ export class Channel<
         Params,
         Data,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;
@@ -622,7 +709,8 @@ export class Channel<
         Params,
         Data & DataThis,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         // @ts-expect-error handler Data variance
         this["~"].beforeUpgrade = handler;
@@ -651,7 +739,8 @@ export class Channel<
         Params,
         Data & Derived,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -676,7 +765,8 @@ export class Channel<
         Params,
         Data & Derived,
         RpcMap,
-        ServerRpcMap
+        ServerRpcMap,
+        StreamMap
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);

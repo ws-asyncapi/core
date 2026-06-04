@@ -13,6 +13,7 @@ import { type CachedRpc, IdempotencyCache } from "./idempotency.ts";
 import type { AnyChannel } from "./index.ts";
 import type { OutboundRpc } from "./outbound.ts";
 import { validate } from "./schema.ts";
+import { StreamRegistry } from "./stream.ts";
 import type { RequestData } from "./types.ts";
 import type { WebSocketImplementation } from "./websocket.ts";
 import {
@@ -39,6 +40,8 @@ export interface Connection {
     sessionId?: string;
     /** pending server→client (outbound) RPCs for this connection */
     outbound?: OutboundRpc;
+    /** active streams for this connection (for cancel / abort-on-close) */
+    streams?: StreamRegistry;
 }
 
 /** Reserved per-socket room so a socket can be addressed directly by id
@@ -98,6 +101,8 @@ export async function closeConnection(
     (channel as any)["~"].sockets.delete(conn.ws.id);
     // fail any in-flight server→client requests
     conn.outbound?.rejectAll(new RpcError("INTERNAL", "connection closed"));
+    // abort any active streams (their handlers' signals fire → finally cleanup)
+    conn.streams?.abortAll();
     // persist recoverable state (rooms) before dropping the socket — but not
     // the per-socket room (it's keyed by the old id, which won't recur)
     if (conn.sessionId && backplane.saveSession) {
@@ -340,6 +345,79 @@ export async function dispatchFrame(
                     result.message ?? "error",
                     result.data,
                 ]);
+            return;
+        }
+        case Frame.StreamStart: {
+            const [, name, streamId, payload] = frame;
+            const entry = channel["~"].stream.get(name);
+            if (!entry) {
+                wsi.sendFrame([
+                    Frame.StreamError,
+                    streamId,
+                    "NOT_FOUND",
+                    `No stream "${name}"`,
+                ]);
+                return;
+            }
+            const inputResult = await validate(entry.input, payload);
+            if (!inputResult.ok) {
+                wsi.sendFrame([
+                    Frame.StreamError,
+                    streamId,
+                    "VALIDATION",
+                    `Invalid input for stream "${name}"`,
+                    inputResult.issues.slice(0, 5),
+                ]);
+                return;
+            }
+            const signal =
+                conn.streams?.add(streamId) ?? new AbortController().signal;
+
+            // Run the generator without blocking the dispatch loop; push each
+            // yielded value, then StreamEnd (or StreamError on throw). Abort
+            // (client StreamStop / disconnect) stops the loop and the trailing
+            // frames so a cancelled stream goes quiet.
+            void (async () => {
+                try {
+                    const ctxData = await applyMiddleware(
+                        name,
+                        inputResult.value,
+                    );
+                    const iterable = entry.handler({
+                        ws: wsi,
+                        message: inputResult.value,
+                        request,
+                        data: ctxData,
+                        signal,
+                    });
+                    for await (const item of iterable) {
+                        if (signal.aborted) break;
+                        wsi.sendFrame([Frame.StreamData, streamId, item]);
+                    }
+                    if (!signal.aborted)
+                        wsi.sendFrame([Frame.StreamEnd, streamId]);
+                } catch (error) {
+                    if (!signal.aborted) {
+                        const code: ErrorCode =
+                            error instanceof RpcError ? error.code : "INTERNAL";
+                        wsi.sendFrame([
+                            Frame.StreamError,
+                            streamId,
+                            code,
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                            error instanceof RpcError ? error.data : undefined,
+                        ]);
+                    }
+                } finally {
+                    conn.streams?.done(streamId);
+                }
+            })();
+            return;
+        }
+        case Frame.StreamStop: {
+            conn.streams?.stop(frame[1]);
             return;
         }
         default:

@@ -24,6 +24,11 @@ export const PROTOCOL_VERSION = 1;
  * Pong     [6, ts]
  * Hello    [7, sessionId | null, lastOffset | 0, protocolVersion, contractVersion?]
  * Welcome  [8, sessionId, recovered (0|1), serverOffset]
+ * StreamStart [9, name, streamId, input]   client→server: open a stream
+ * StreamData  [10, streamId, payload]       server→client: one yielded item
+ * StreamEnd   [11, streamId]                server→client: stream completed
+ * StreamError [12, streamId, code, message, data?]  server→client: stream failed
+ * StreamStop  [13, streamId]                client→server: cancel (unsubscribe)
  * ```
  */
 export enum Frame {
@@ -45,6 +50,16 @@ export enum Frame {
     Hello = 7,
     /** handshake reply (server→client): assigns/confirms session id + offset */
     Welcome = 8,
+    /** client→server: open a typed stream (server replies with StreamData*) */
+    StreamStart = 9,
+    /** server→client: one item yielded by a stream handler */
+    StreamData = 10,
+    /** server→client: a stream completed normally */
+    StreamEnd = 11,
+    /** server→client: a stream failed (typed error) */
+    StreamError = 12,
+    /** client→server: cancel a stream (e.g. the consumer stopped iterating) */
+    StreamStop = 13,
 }
 
 /** Stable error codes carried in an {@link Frame.Error} frame. */
@@ -105,6 +120,17 @@ export type HelloFrame =
     | [Frame.Hello, string | null, number | string, number]
     | [Frame.Hello, string | null, number | string, number, string];
 export type WelcomeFrame = [Frame.Welcome, string, 0 | 1, number | string];
+export type StreamStartFrame = [Frame.StreamStart, string, number, unknown];
+export type StreamDataFrame = [Frame.StreamData, number, unknown];
+export type StreamEndFrame = [Frame.StreamEnd, number];
+export type StreamErrorFrame = [
+    Frame.StreamError,
+    number,
+    ErrorCode,
+    string,
+    unknown?,
+];
+export type StreamStopFrame = [Frame.StreamStop, number];
 
 export type AnyFrame =
     | EventFrame
@@ -115,7 +141,12 @@ export type AnyFrame =
     | PingFrame
     | PongFrame
     | HelloFrame
-    | WelcomeFrame;
+    | WelcomeFrame
+    | StreamStartFrame
+    | StreamDataFrame
+    | StreamEndFrame
+    | StreamErrorFrame
+    | StreamStopFrame;
 
 // --- Codec -------------------------------------------------------------------
 

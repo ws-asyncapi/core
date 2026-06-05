@@ -45,8 +45,16 @@ declare module "asyncapi-types" {
         "x-ws-asyncapi-rpc"?: 1;
         // marks a server→client RPC (action "send" with a `reply`)
         "x-ws-asyncapi-server-rpc"?: 1;
+        // marks a client→server stream (action "receive"; `reply` = streamed item)
+        "x-ws-asyncapi-stream"?: 1;
         // declared RPC error codes → message $ref for the error's `data` schema
         "x-ws-asyncapi-errors"?: Record<string, { $ref: string }>;
+    }
+    interface ChannelObject {
+        // `.onAuth` credentials schema → message $ref (client.authenticate input)
+        "x-ws-asyncapi-auth"?: { $ref: string };
+        // `.presence` per-member state schema → message $ref
+        "x-ws-asyncapi-presence"?: { $ref: string };
     }
 }
 

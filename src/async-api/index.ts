@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import type {
     AsyncAPIObject,
     ChannelBindingsObject,
+    ChannelObject,
     ChannelsObject,
     MessageObject,
     OperationsObject,
@@ -76,13 +77,14 @@ export function getAsyncApiDocument(
             ...channel["~"].client.keys(),
             ...channel["~"].rpc.keys(),
             ...channel["~"].serverRpc.keys(),
+            ...channel["~"].stream.keys(),
         ];
         const duplicates = [
             ...new Set(allNames.filter((n, i) => allNames.indexOf(n) !== i)),
         ];
         if (duplicates.length > 0) {
             throw new Error(
-                `Channel "${channel.name}" has duplicate message names across serverMessage/clientMessage/rpc: ${duplicates.join(", ")}`,
+                `Channel "${channel.name}" has duplicate message names across serverMessage/clientMessage/rpc/stream: ${duplicates.join(", ")}`,
             );
         }
 
@@ -233,6 +235,83 @@ export function getAsyncApiDocument(
                     payload: toLibrarySpec(name, output, "output"),
                 };
             }
+        }
+
+        // Streams: the client opens with an input (request) and the server
+        // streams items of the output shape (reply). Same request/reply message
+        // shape as an RPC, distinguished by `x-ws-asyncapi-stream` so the CLI
+        // bins it into `StreamMap` instead of `RpcMap`.
+        if (channel["~"].stream.size > 0) {
+            for (const [name, { input, output }] of channel["~"].stream) {
+                operations[toPascalCase(`${channel.name}_${name}`)] = {
+                    action: "receive",
+                    channel: {
+                        $ref: `#/channels/${channel.name}`,
+                    },
+                    messages: [
+                        {
+                            $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_request`)}`,
+                        },
+                    ],
+                    reply: {
+                        channel: {
+                            $ref: `#/channels/${channel.name}`,
+                        },
+                        messages: [
+                            {
+                                $ref: `#/channels/${channel.name}/messages/${toPascalCase(`${name}_reply`)}`,
+                            },
+                        ],
+                    },
+                    "x-ws-asyncapi-operation": 1,
+                    "x-ws-asyncapi-stream": 1,
+                };
+
+                messages[toPascalCase(`${name}_request`)] = {
+                    // client→server open: wire carries the input shape
+                    payload: toLibrarySpec(name, input, "input"),
+                };
+                messages[toPascalCase(`${name}_reply`)] = {
+                    // server→client item: wire carries the output shape
+                    payload: toLibrarySpec(name, output, "output"),
+                };
+            }
+        }
+
+        // Auth (`.onAuth`) and presence (`.presence`) are channel-wide, not
+        // per-name operations — record their schemas as a message + a
+        // channel-level `$ref` extension the CLI reads to emit `authCredentials`
+        // / `presenceState` on the generated client.
+        const channelObject = channels[channel.name] as ChannelObject;
+
+        if (channel["~"].auth) {
+            const msgName = toPascalCase("auth_credentials");
+            messages[msgName] = {
+                // client→server credentials: wire carries the input shape
+                payload: toLibrarySpec(
+                    "auth",
+                    channel["~"].auth.credentials,
+                    "input",
+                ),
+            };
+            channelObject["x-ws-asyncapi-auth"] = {
+                $ref: `#/channels/${channel.name}/messages/${msgName}`,
+            };
+        }
+
+        if (channel["~"].presence) {
+            const msgName = toPascalCase("presence_state");
+            messages[msgName] = {
+                // per-member state: wire carries the parsed/output shape
+                payload: toLibrarySpec(
+                    "presence",
+                    channel["~"].presence.state,
+                    "output",
+                ),
+            };
+            channelObject["x-ws-asyncapi-presence"] = {
+                $ref: `#/channels/${channel.name}/messages/${msgName}`,
+            };
         }
     }
 

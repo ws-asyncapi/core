@@ -2,23 +2,20 @@
  * Schema normalization layer.
  *
  * ws-asyncapi accepts **any** validator that implements the
- * [Standard Schema](https://standardschema.dev) spec (Zod, Valibot, ArkType, …)
- * as well as raw [TypeBox](https://github.com/sinclairzx81/typebox) schemas. This
- * module is the single seam every other part of the framework goes through, so
- * nothing else has to know which validator produced a schema.
+ * [Standard Schema](https://standardschema.dev) spec (Zod, Valibot, ArkType, …).
+ * This module is the single seam every other part of the framework goes through,
+ * so nothing else has to know which validator produced a schema.
  *
  * Three operations are normalized:
  *  - **type inference** — {@link InferIn} / {@link InferOut}
  *  - **validation** — {@link validate} (sync or async, normalized issues)
  *  - **JSON Schema** for the AsyncAPI contract — {@link toJsonSchema}
- *    (via the companion StandardJSONSchemaV1 spec; TypeBox is already JSON Schema)
+ *    (via the companion StandardJSONSchemaV1 spec, or a registered converter)
  */
-import type { Static, TSchema } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-/** A schema accepted by the builder: any Standard Schema, or a TypeBox schema. */
-export type AnySchema = StandardSchemaV1 | TSchema;
+/** A schema accepted by the builder: any Standard Schema validator. */
+export type AnySchema = StandardSchemaV1;
 
 /** The JSON Schema draft a converter should target. AsyncAPI 3.0's Schema Object
  *  is a superset of draft-07, so that is the default and the recommended target. */
@@ -32,16 +29,12 @@ export type SchemaIO = "input" | "output";
 /** Static type a handler receives after a schema validates (post-parse). */
 export type InferOut<S> = S extends StandardSchemaV1
     ? StandardSchemaV1.InferOutput<S>
-    : S extends TSchema
-      ? Static<S>
-      : unknown;
+    : unknown;
 
 /** Static type that goes onto the wire / into validation (pre-parse). */
 export type InferIn<S> = S extends StandardSchemaV1
     ? StandardSchemaV1.InferInput<S>
-    : S extends TSchema
-      ? Static<S>
-      : unknown;
+    : unknown;
 
 /** True if `s` implements Standard Schema (has a `~standard` prop). */
 export function isStandardSchema(s: unknown): s is StandardSchemaV1 {
@@ -75,30 +68,21 @@ function normalizeIssue(issue: StandardSchemaV1.Issue): ValidationIssue {
 }
 
 /**
- * Validate `value` against `schema`. Standard Schema validators may run async;
- * TypeBox runs sync. Returns the **parsed** value on success (so transforms /
- * coercion / defaults are applied), or normalized issues on failure.
+ * Validate `value` against `schema` (a Standard Schema validator, which may run
+ * sync or async). Returns the **parsed** value on success (so transforms /
+ * coercion / defaults are applied), or normalized issues on failure. A value that
+ * isn't a Standard Schema is treated as "no validation" and passes through.
  */
 export async function validate(
     schema: AnySchema,
     value: unknown,
 ): Promise<ValidationResult> {
-    if (isStandardSchema(schema)) {
-        let result = schema["~standard"].validate(value);
-        if (result instanceof Promise) result = await result;
-        if (result.issues)
-            return { ok: false, issues: result.issues.map(normalizeIssue) };
-        return { ok: true, value: result.value };
-    }
-    // TypeBox fallback (no input/output distinction; value is unchanged)
-    if (Value.Check(schema, value)) return { ok: true, value };
-    return {
-        ok: false,
-        issues: [...Value.Errors(schema, value)].map((e) => ({
-            path: e.path,
-            message: e.message,
-        })),
-    };
+    if (!isStandardSchema(schema)) return { ok: true, value };
+    let result = schema["~standard"].validate(value);
+    if (result instanceof Promise) result = await result;
+    if (result.issues)
+        return { ok: false, issues: result.issues.map(normalizeIssue) };
+    return { ok: true, value: result.value };
 }
 
 /**
@@ -145,34 +129,30 @@ function stripDialect(schema: object): object {
  *  2. **Registered vendor converter** — for validators that validate but emit
  *     JSON Schema elsewhere (e.g. Valibot via `@valibot/to-json-schema`); see
  *     {@link registerJsonSchemaConverter}.
- *  3. **Raw TypeBox** — already JSON Schema, embedded as-is.
- *  4. **`{}`** — runtime validation still works; the generated type is `unknown`.
+ *  3. **`{}`** — runtime validation still works; the generated type is `unknown`.
  */
 export function toJsonSchema(
     schema: AnySchema,
     io: SchemaIO = "output",
     target: JsonSchemaTarget = "draft-07",
 ): object {
-    if (isStandardSchema(schema)) {
-        const std = schema["~standard"] as {
-            vendor?: string;
-            jsonSchema?: {
-                input?: (o: { target: string }) => object;
-                output?: (o: { target: string }) => object;
-            };
+    if (!isStandardSchema(schema)) return {};
+    const std = schema["~standard"] as {
+        vendor?: string;
+        jsonSchema?: {
+            input?: (o: { target: string }) => object;
+            output?: (o: { target: string }) => object;
         };
-        // 1. native StandardJSONSchemaV1
-        const convert = std.jsonSchema?.[io] ?? std.jsonSchema?.output;
-        if (convert) return stripDialect(convert({ target }));
-        // 2. registered vendor converter
-        const vendorConvert = std.vendor
-            ? vendorConverters.get(std.vendor)
-            : undefined;
-        const out = vendorConvert?.(schema, io, target);
-        if (out) return stripDialect(out);
-        // 4. unknown
-        return {};
-    }
-    // 3. TypeBox: a TSchema is valid JSON Schema; drop the [Kind] symbols
-    return JSON.parse(JSON.stringify(schema)) as object;
+    };
+    // 1. native StandardJSONSchemaV1
+    const convert = std.jsonSchema?.[io] ?? std.jsonSchema?.output;
+    if (convert) return stripDialect(convert({ target }));
+    // 2. registered vendor converter
+    const vendorConvert = std.vendor
+        ? vendorConverters.get(std.vendor)
+        : undefined;
+    const out = vendorConvert?.(schema, io, target);
+    if (out) return stripDialect(out);
+    // 3. unknown
+    return {};
 }

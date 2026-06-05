@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Type } from "@sinclair/typebox";
+import { z } from "zod";
 import { Channel, getAsyncApiDocument } from "../src/index.ts";
 
 describe("rpc AsyncAPI generation", () => {
     test("emits a receive operation with a reply and request/reply messages", () => {
         const channel = new Channel("/chat/:room", "chat").rpc(
             "history",
-            Type.Object({ limit: Type.Number() }),
-            Type.Object({ items: Type.Array(Type.String()) }),
+            z.object({ limit: z.number() }),
+            z.object({ items: z.array(z.string()) }),
             async () => ({ items: [] }),
         );
 
@@ -34,11 +34,11 @@ describe("rpc AsyncAPI generation", () => {
 
     test("rejects duplicate message names across server/client/rpc", () => {
         const channel = new Channel("/dup", "dup")
-            .serverMessage("ping", Type.Object({}))
+            .serverMessage("ping", z.object({}))
             .rpc(
                 "ping",
-                Type.Object({}),
-                Type.Object({}),
+                z.object({}),
+                z.object({}),
                 async () => ({}),
             );
 
@@ -50,7 +50,7 @@ describe("rpc AsyncAPI generation", () => {
     test("does not affect channels without rpc", () => {
         const channel = new Channel("/plain", "plain").serverMessage(
             "tick",
-            Type.Object({ n: Type.Number() }),
+            z.object({ n: z.number() }),
         );
         const doc = getAsyncApiDocument([channel], {});
         // biome-ignore lint/suspicious/noExplicitAny: test assertions

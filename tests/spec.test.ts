@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Type } from "@sinclair/typebox";
+import { z } from "zod";
 import { getAsyncApiDocument } from "../src/async-api/index.ts";
 import { Channel } from "../src/index.ts";
 
@@ -43,8 +43,8 @@ describe("AsyncAPI", () => {
 
     it("Simple channel", () => {
         const channel = new Channel("/test/:id", "test").query(
-            Type.Object({
-                id: Type.String(),
+            z.object({
+                id: z.string(),
             }),
         );
 
@@ -62,10 +62,8 @@ describe("AsyncAPI", () => {
                   "ws": {
                     "bindingVersion": "0.1.0",
                     "query": {
-                      [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
                         "id": {
-                          [Symbol(TypeBox.Kind)]: "String",
                           "type": "string",
                         },
                       },
@@ -100,14 +98,14 @@ describe("AsyncAPI", () => {
     it("Channel with server and client message", () => {
         const channel = new Channel("/test/:id", "test")
             .query(
-                Type.Object({
-                    id: Type.String(),
+                z.object({
+                    id: z.string(),
                 }),
             )
             .serverMessage(
                 "test",
-                Type.Object({
-                    id: Type.String(),
+                z.object({
+                    id: z.string(),
                 }),
             )
             .clientMessage("test-really", (message) => {
@@ -128,10 +126,8 @@ describe("AsyncAPI", () => {
                   "ws": {
                     "bindingVersion": "0.1.0",
                     "query": {
-                      [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
                         "id": {
-                          [Symbol(TypeBox.Kind)]: "String",
                           "type": "string",
                         },
                       },
@@ -169,6 +165,7 @@ describe("AsyncAPI", () => {
                           "type": "string",
                         },
                         {
+                          "additionalProperties": false,
                           "properties": {
                             "id": {
                               "type": "string",
@@ -190,7 +187,7 @@ describe("AsyncAPI", () => {
                   "id": {},
                 },
                 "title": "test",
-                "x-ws-asyncapi-contract-hash": "c1c6f4ec",
+                "x-ws-asyncapi-contract-hash": "21cd1671",
               },
             },
             "components": {},

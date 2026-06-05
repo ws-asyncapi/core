@@ -1,4 +1,3 @@
-import type { Static, TObject } from "@sinclair/typebox";
 import type { ChannelObject } from "asyncapi-types";
 import type { NodeCommand } from "./command.ts";
 import { type Connection, perSocketRoom } from "./dispatch.ts";
@@ -200,8 +199,8 @@ export class Channel<
         serverEvents: new Map<string, (data: unknown) => void>(),
         // adapter-provided: publish a cross-node command on the command topic
         sendCommand: undefined as ((cmd: NodeCommand) => void) | undefined,
-        query: undefined as TObject | undefined,
-        headers: undefined as TObject | undefined,
+        query: undefined as AnySchema | undefined,
+        headers: undefined as AnySchema | undefined,
         onOpen: undefined as
             | OnOpenHandler<
                   WebsocketDataType,
@@ -308,10 +307,10 @@ export class Channel<
         public schema: ChannelObject = {},
     ) {}
 
-    query<QueryObject extends TObject>(
+    query<QueryObject extends AnySchema>(
         query: QueryObject,
     ): Channel<
-        Static<QueryObject>,
+        InferOut<QueryObject>,
         Headers,
         WebsocketClientData,
         WebsocketServerData,
@@ -331,11 +330,11 @@ export class Channel<
         return this as any;
     }
 
-    headers<HeadersObject extends TObject>(
+    headers<HeadersObject extends AnySchema>(
         headers: HeadersObject,
     ): Channel<
         Query,
-        Static<HeadersObject>,
+        InferOut<HeadersObject>,
         WebsocketClientData,
         WebsocketServerData,
         Topics,

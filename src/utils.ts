@@ -20,15 +20,18 @@ export function toChannelExpression(path: string) {
  */
 export function toLibrarySpec(
     name: string,
-    data: AnySchema,
+    data: AnySchema | undefined,
     io: SchemaIO = "output",
 ) {
+    // No schema declared → a "never" payload (`{ not: {} }`), which the CLI reads
+    // as `never`. (Previously this was a TypeBox `Type.Never()` upstream.)
+    const payload = data === undefined ? { not: {} } : toJsonSchema(data, io);
     return {
         type: "array",
         minItems: 2,
         maxItems: 2,
         additionalItems: false,
-        items: [{ type: "string", const: name }, toJsonSchema(data, io)],
+        items: [{ type: "string", const: name }, payload],
     };
 }
 

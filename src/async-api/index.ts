@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import type {
     AsyncAPIObject,
     ChannelBindingsObject,
@@ -10,6 +9,7 @@ import type {
 } from "asyncapi-types";
 import { contractHash } from "../contract.ts";
 import type { AnyChannel } from "../index.ts";
+import { toJsonSchema } from "../schema.ts";
 import {
     getPathParams,
     toChannelExpression,
@@ -35,11 +35,11 @@ export function getAsyncApiDocument(
         const messages: Record<string, MessageObject> = {};
 
         if (channel["~"].query) {
-            wsBinding.query = channel["~"].query;
+            wsBinding.query = toJsonSchema(channel["~"].query, "input");
         }
 
         if (channel["~"].headers) {
-            wsBinding.headers = channel["~"].headers;
+            wsBinding.headers = toJsonSchema(channel["~"].headers, "input");
         }
 
         const pathParams = getPathParams(channel.address);
@@ -105,11 +105,7 @@ export function getAsyncApiDocument(
 
                 messages[toPascalCase(`${name}_send`)] = {
                     // server→client event: wire carries the parsed/output shape
-                    payload: toLibrarySpec(
-                        name,
-                        validation ?? Type.Never(),
-                        "output",
-                    ),
+                    payload: toLibrarySpec(name, validation, "output"),
                 };
             }
         }
@@ -132,11 +128,7 @@ export function getAsyncApiDocument(
 
                 messages[toPascalCase(`${name}_receive`)] = {
                     // client→server command: wire carries the input shape
-                    payload: toLibrarySpec(
-                        name,
-                        validation ?? Type.Never(),
-                        "input",
-                    ),
+                    payload: toLibrarySpec(name, validation, "input"),
                 };
             }
         }

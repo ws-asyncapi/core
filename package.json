@@ -37,11 +37,7 @@
     "files": ["dist"],
     "license": "MIT",
     "dependencies": {
-        "@sinclair/typebox": "^0.34.28",
         "@standard-schema/spec": "^1.1.0",
         "asyncapi-types": "^3.0.2"
-    },
-    "overrides": {
-        "@sinclair/typebox": "0.34.28"
     }
 }

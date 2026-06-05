@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { z } from "zod";
 import { Channel } from "../src/index.ts";
 
 import { describe, expect, it } from "bun:test";
@@ -16,7 +16,7 @@ describe("Channel", () => {
     it("should serverMessage a message", () => {
         const channel = new Channel("/test/:id", "test").serverMessage(
             "message",
-            Type.Object({}),
+            z.object({}),
         );
 
         expect(channel["~"].server.get("message")).toBeDefined();
@@ -28,22 +28,22 @@ describe("Channel", () => {
             (message) => {
                 console.log(message);
             },
-            Type.Object({}),
+            z.object({}),
         );
 
         expect(channel["~"].client.get("message")).toBeDefined();
     });
 
     it("should allow query in a channel", () => {
-        const channel = new Channel("/test/:id", "test").query(Type.Object({}));
+        const channel = new Channel("/test/:id", "test").query(z.object({}));
 
         expect(channel["~"].query).toBeDefined();
     });
 
     it("should allow headers in a channel", () => {
         const channel = new Channel("/test/:id", "test").headers(
-            Type.Object({
-                test: Type.String(),
+            z.object({
+                test: z.string(),
             }),
         );
 

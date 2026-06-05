@@ -4,6 +4,7 @@ import type { NodeCommand } from "./command.ts";
 import { type Connection, perSocketRoom } from "./dispatch.ts";
 import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
+    AuthHandler,
     BeforeUpgradeHandler,
     ExtractRouteParams,
     MessageHandler,
@@ -32,8 +33,8 @@ export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<
-    // biome-ignore format: 11 positional anys
-    any, any, any, any, any, any, any, any, any, any, any
+    // biome-ignore format: 12 positional anys
+    any, any, any, any, any, any, any, any, any, any, any, any
 >;
 
 /**
@@ -73,7 +74,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
     infer _Data,
     infer RpcMap,
     infer ServerRpcMap,
-    infer StreamMap
+    infer StreamMap,
+    infer AuthCredentials
 >
     ? {
           query: Query;
@@ -88,6 +90,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
           serverRpcMap: ServerRpcMap;
           /** server→client streams the client consumes: `{ input; output }` per name */
           streamMap: StreamMap;
+          /** credentials accepted by `client.authenticate(...)` (`.onAuth` input) */
+          authCredentials: AuthCredentials;
           /** the literal address pattern, e.g. `` `/chat/${string}` `` */
           address: Path extends string ? AddressPattern<Path> : string;
       }
@@ -159,6 +163,9 @@ export class Channel<
         { input: unknown; output: unknown }
         // biome-ignore lint/complexity/noBannedTypes: <explanation>
     > = {},
+    // 12th generic: credentials accepted by `.onAuth` / `client.authenticate`.
+    // `undefined` until `.onAuth` is declared (the channel rejects refresh).
+    AuthCredentials = undefined,
 > {
     public "~" = {
         client: new Map<
@@ -250,6 +257,23 @@ export class Channel<
                   data: any;
               }) => void)
             | undefined,
+        // credential-refresh handler (.onAuth): validates fresh credentials and
+        // returns context fields to merge on a live connection (token refresh)
+        auth: undefined as
+            | {
+                  credentials: AnySchema;
+                  handler: (ctx: {
+                      // biome-ignore lint/suspicious/noExplicitAny: type-erased ws
+                      ws: any;
+                      // biome-ignore lint/suspicious/noExplicitAny: validated creds
+                      credentials: any;
+                      request: RequestData<Query, Headers, Params>;
+                      // biome-ignore lint/suspicious/noExplicitAny: accumulated data
+                      data: any;
+                      // biome-ignore lint/suspicious/noExplicitAny: merged patch
+                  }) => any;
+              }
+            | undefined,
     };
     constructor(
         public address: Path,
@@ -270,7 +294,8 @@ export class Channel<
         Data,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].query = query;
 
@@ -291,7 +316,8 @@ export class Channel<
         Data,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].headers = headers;
 
@@ -320,7 +346,8 @@ export class Channel<
         Data,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].server.set(name, validation);
 
@@ -361,7 +388,8 @@ export class Channel<
         Data,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].client.set(name, { handler, validation });
 
@@ -424,7 +452,8 @@ export class Channel<
             };
         },
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].rpc.set(name, {
             input,
@@ -466,7 +495,8 @@ export class Channel<
         ServerRpcMap & {
             [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
         },
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         this["~"].serverRpc.set(name, { input, output });
 
@@ -521,7 +551,8 @@ export class Channel<
         ServerRpcMap,
         StreamMap & {
             [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
-        }
+        },
+        AuthCredentials
     > {
         this["~"].stream.set(name, {
             input,
@@ -691,7 +722,8 @@ export class Channel<
         Data,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;
@@ -710,7 +742,8 @@ export class Channel<
         Data & DataThis,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         // @ts-expect-error handler Data variance
         this["~"].beforeUpgrade = handler;
@@ -740,7 +773,8 @@ export class Channel<
         Data & Derived,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -766,10 +800,72 @@ export class Channel<
         Data & Derived,
         RpcMap,
         ServerRpcMap,
-        StreamMap
+        StreamMap,
+        AuthCredentials
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /**
+     * Declares **mid-connection credential refresh**. A WebSocket can outlive
+     * its initial bearer token; `.onAuth` lets the client present fresh
+     * credentials on the *live* connection (via `client.authenticate(creds)`)
+     * without dropping and re-handshaking.
+     *
+     * `credentials` validates the incoming payload; the handler receives the
+     * parsed credentials plus the current context, and returns the fields to
+     * merge into that context (typically the re-decoded user) — visible to every
+     * subsequent handler. Throw `new RpcError(code, message, data)` to reject the
+     * refresh; the client's `authenticate` promise rejects with that typed error.
+     *
+     * The resilient client also re-sends the last credentials automatically
+     * after a reconnect, so the refreshed identity survives transient drops.
+     *
+     * ```ts
+     * .resolve(async ({ request }) => ({ user: await verify(request.headers.token) }))
+     * .onAuth(z.object({ token: z.string() }), async ({ credentials }) => ({
+     *   user: await verify(credentials.token), // replaces the stale user
+     * }))
+     * ```
+     */
+    onAuth<Creds extends AnySchema>(
+        credentials: Creds,
+        handler: AuthHandler<
+            {
+                client: WebsocketClientData;
+                server: WebsocketServerData;
+                serverRpc: ServerRpcMap;
+            },
+            Topics,
+            InferOut<Creds>,
+            Query,
+            Headers,
+            Params,
+            Data
+        >,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data,
+        RpcMap,
+        ServerRpcMap,
+        StreamMap,
+        InferIn<Creds>
+    > {
+        this["~"].auth = {
+            credentials,
+            // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
+            handler: handler as any,
+        };
 
         // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;

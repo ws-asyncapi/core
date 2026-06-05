@@ -148,6 +148,29 @@ export type StreamHandler<
     signal: AbortSignal;
 }) => AsyncIterable<Output>;
 
+/**
+ * Handler for credential refresh (`.onAuth()`). Runs when a client sends fresh
+ * credentials on a live connection (an {@link import("./wire.ts").Frame.Auth}
+ * frame). It receives the validated `credentials` plus the current context and
+ * returns the fields to merge into that context (e.g. the re-decoded user), or
+ * throws an {@link import("./wire.ts").RpcError} to reject the refresh.
+ */
+export type AuthHandler<
+    WebsocketData extends WebsocketDataType,
+    Topics extends string,
+    Credentials,
+    Query extends unknown | undefined,
+    Headers extends unknown | undefined,
+    Params extends unknown | undefined,
+    Data,
+> = (data: {
+    ws: WebSocketImplementation<WebsocketData, Topics>;
+    credentials: Credentials;
+    request: RequestData<Query, Headers, Params>;
+    data: Data;
+    // biome-ignore lint/suspicious/noConfusingVoidType: void = leave context as-is
+}) => MaybePromise<Partial<Data> | Record<string, unknown> | void>;
+
 export type ExtractRouteParams<T> =
     T extends `${string}:${infer Param}/${infer Rest}`
         ? { [K in Param]: string } & ExtractRouteParams<Rest>
@@ -181,7 +204,9 @@ export type GetWebSocketType<ChannelThis extends AnyChannel> =
         infer _RpcMap,
         infer ServerRpcMap,
         // biome-ignore lint/correctness/noUnusedVariables: 11th slot (StreamMap), unused here
-        infer _StreamMap
+        infer _StreamMap,
+        // biome-ignore lint/correctness/noUnusedVariables: 12th slot (AuthCredentials), unused here
+        infer _AuthCredentials
     >
         ? WebSocketImplementation<
               {

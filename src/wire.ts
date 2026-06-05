@@ -29,6 +29,8 @@ export const PROTOCOL_VERSION = 1;
  * StreamEnd   [11, streamId]                server→client: stream completed
  * StreamError [12, streamId, code, message, data?]  server→client: stream failed
  * StreamStop  [13, streamId]                client→server: cancel (unsubscribe)
+ * Auth        [14, corrId, credentials]     client→server: refresh credentials
+ *                                           (server replies Reply/Error by corrId)
  * ```
  */
 export enum Frame {
@@ -60,6 +62,13 @@ export enum Frame {
     StreamError = 12,
     /** client→server: cancel a stream (e.g. the consumer stopped iterating) */
     StreamStop = 13,
+    /**
+     * client→server: present fresh credentials on a live connection (token
+     * refresh). The server re-runs its `.onAuth` handler and replaces the
+     * connection's context, replying with a {@link Frame.Reply} on success or a
+     * {@link Frame.Error} on rejection — both carried by the same `corrId`.
+     */
+    Auth = 14,
 }
 
 /** Stable error codes carried in an {@link Frame.Error} frame. */
@@ -74,6 +83,8 @@ export const ErrorCode = {
     TIMEOUT: "TIMEOUT",
     /** too many in-flight requests (client) or backpressure (server) */
     OVERLOADED: "OVERLOADED",
+    /** credentials missing/expired/invalid (e.g. a rejected `.authenticate`) */
+    UNAUTHENTICATED: "UNAUTHENTICATED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode] | (string & {});
@@ -131,6 +142,12 @@ export type StreamErrorFrame = [
     unknown?,
 ];
 export type StreamStopFrame = [Frame.StreamStop, number];
+/**
+ * Client→server credential refresh. The 3rd element is the credentials payload
+ * (validated against the channel's `.onAuth` schema); the server answers with a
+ * {@link ReplyFrame} or {@link ErrorFrame} carrying the same `corrId`.
+ */
+export type AuthFrame = [Frame.Auth, number, unknown];
 
 export type AnyFrame =
     | EventFrame
@@ -146,7 +163,8 @@ export type AnyFrame =
     | StreamDataFrame
     | StreamEndFrame
     | StreamErrorFrame
-    | StreamStopFrame;
+    | StreamStopFrame
+    | AuthFrame;
 
 // --- Codec -------------------------------------------------------------------
 

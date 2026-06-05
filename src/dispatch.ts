@@ -420,6 +420,57 @@ export async function dispatchFrame(
             conn.streams?.stop(frame[1]);
             return;
         }
+        case Frame.Auth: {
+            // Mid-connection credential refresh: re-run the channel's `.onAuth`
+            // handler with fresh credentials and replace the connection context,
+            // so a long-lived socket can outlive its initial (expiring) token.
+            const [, corrId, credentials] = frame;
+            const auth = channel["~"].auth;
+            if (!auth) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "NOT_FOUND",
+                    "this channel does not accept credential refresh (no .onAuth)",
+                ]);
+                return;
+            }
+            const credResult = await validate(auth.credentials, credentials);
+            if (!credResult.ok) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "VALIDATION",
+                    "invalid credentials",
+                    credResult.issues.slice(0, 5),
+                ]);
+                return;
+            }
+            try {
+                const patch = await auth.handler({
+                    ws: wsi,
+                    credentials: credResult.value,
+                    request,
+                    data: conn.data,
+                });
+                // merge the returned fields into the *live* context object so
+                // every subsequent handler (commands/rpc/streams) sees them
+                if (patch && typeof patch === "object")
+                    conn.data = Object.assign(conn.data ?? {}, patch);
+                wsi.sendFrame([Frame.Reply, corrId, true]);
+            } catch (error) {
+                const code: ErrorCode =
+                    error instanceof RpcError ? error.code : "UNAUTHENTICATED";
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    code,
+                    error instanceof Error ? error.message : String(error),
+                    error instanceof RpcError ? error.data : undefined,
+                ]);
+            }
+            return;
+        }
         default:
             return;
     }

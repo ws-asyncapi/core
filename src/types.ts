@@ -206,7 +206,9 @@ export type GetWebSocketType<ChannelThis extends AnyChannel> =
         // biome-ignore lint/correctness/noUnusedVariables: 11th slot (StreamMap), unused here
         infer _StreamMap,
         // biome-ignore lint/correctness/noUnusedVariables: 12th slot (AuthCredentials), unused here
-        infer _AuthCredentials
+        infer _AuthCredentials,
+        // biome-ignore lint/correctness/noUnusedVariables: 13th slot (PresenceState), unused here
+        infer _PresenceState
     >
         ? WebSocketImplementation<
               {

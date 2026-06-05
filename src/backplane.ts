@@ -79,6 +79,20 @@ export interface Backplane {
         topics: string[],
     ): Promise<BackplaneMessage[]>;
 
+    // --- presence (optional capability) --------------------------------------
+    // A backplane that implements these stores per-room member state cluster-wide
+    // so a (re)connecting client can fetch the current roster. Live join/leave/
+    // update changes ride the normal publish fan-out as PresenceDiff frames, so
+    // they already work cross-node; these methods back the snapshot only. Without
+    // them, `.presence` snapshots are empty (diffs still flow).
+
+    /** Store (or replace) a member's presence state in a room. */
+    setPresence?(room: string, socketId: string, state: unknown): Promise<void>;
+    /** Remove a member from a room's presence roster. */
+    clearPresence?(room: string, socketId: string): Promise<void>;
+    /** Current roster of a presence room: socket id → state. */
+    getPresence?(room: string): Promise<Record<string, unknown>>;
+
     /** Persist a disconnecting connection's recoverable state for `ttlMs`. */
     saveSession?(sessionId: string, state: SessionState): Promise<void>;
     /** Load a reconnecting connection's state, or null if expired/unknown. */
@@ -115,6 +129,8 @@ export class LocalBackplane implements Backplane {
     #handler?: (message: BackplaneMessage) => void;
     #rooms = new Map<string, Set<string>>();
     #socketRooms = new Map<string, Set<string>>();
+    // presence: room -> (socketId -> state)
+    #presence = new Map<string, Map<string, unknown>>();
 
     // recovery state
     #recovery: boolean;
@@ -243,6 +259,31 @@ export class LocalBackplane implements Backplane {
             }
         }
         this.#socketRooms.delete(socketId);
+    }
+
+    async setPresence(
+        room: string,
+        socketId: string,
+        state: unknown,
+    ): Promise<void> {
+        let members = this.#presence.get(room);
+        if (!members) {
+            members = new Map();
+            this.#presence.set(room, members);
+        }
+        members.set(socketId, state);
+    }
+
+    async clearPresence(room: string, socketId: string): Promise<void> {
+        const members = this.#presence.get(room);
+        if (members) {
+            members.delete(socketId);
+            if (members.size === 0) this.#presence.delete(room);
+        }
+    }
+
+    async getPresence(room: string): Promise<Record<string, unknown>> {
+        return Object.fromEntries(this.#presence.get(room) ?? []);
     }
 
     async roomMembers(topic: string): Promise<string[]> {

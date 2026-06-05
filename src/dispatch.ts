@@ -42,6 +42,11 @@ export interface Connection {
     outbound?: OutboundRpc;
     /** active streams for this connection (for cancel / abort-on-close) */
     streams?: StreamRegistry;
+    /** this connection's presence room (set on open when `.presence` is enabled) */
+    presenceRoom?: string;
+    /** whether this connection currently has presence state announced (so close
+     *  knows to emit a leave) */
+    isPresent?: boolean;
 }
 
 /** Reserved per-socket room so a socket can be addressed directly by id
@@ -78,6 +83,14 @@ export async function openConnection(
             data = Object.assign(data, result);
     }
     conn.data = data;
+    // presence: derive this connection's presence room (server-side) and join it
+    // so it receives others' diffs. It isn't listed in the roster until it
+    // announces state via a PresenceSet frame.
+    if (channel["~"].presence) {
+        const room = channel["~"].presence.room({ request: conn.request, data });
+        conn.presenceRoom = room;
+        conn.ws.subscribe(room as never);
+    }
     await channel["~"].onOpen?.({
         ws: conn.ws,
         request: conn.request,
@@ -103,11 +116,22 @@ export async function closeConnection(
     conn.outbound?.rejectAll(new RpcError("INTERNAL", "connection closed"));
     // abort any active streams (their handlers' signals fire → finally cleanup)
     conn.streams?.abortAll();
+    // presence: if this connection was in the roster, drop it and tell the room
+    if (conn.presenceRoom && conn.isPresent) {
+        await backplane.clearPresence?.(conn.presenceRoom, conn.ws.id);
+        channel["~"].publishFrame?.(conn.presenceRoom, [
+            Frame.PresenceDiff,
+            conn.presenceRoom,
+            conn.ws.id,
+        ]);
+        conn.isPresent = false;
+    }
     // persist recoverable state (rooms) before dropping the socket — but not
-    // the per-socket room (it's keyed by the old id, which won't recur)
+    // the per-socket room (keyed by the old id) or the presence room (re-derived
+    // on the next open)
     if (conn.sessionId && backplane.saveSession) {
         const rooms = (await backplane.rooms(conn.ws.id)).filter(
-            (r) => !r.startsWith("#sid:"),
+            (r) => !r.startsWith("#sid:") && !r.startsWith("#presence:"),
         );
         if (rooms.length > 0)
             await backplane.saveSession(conn.sessionId, { rooms });
@@ -468,6 +492,73 @@ export async function dispatchFrame(
                     error instanceof Error ? error.message : String(error),
                     error instanceof RpcError ? error.data : undefined,
                 ]);
+            }
+            return;
+        }
+        case Frame.PresenceSet: {
+            // announce/update this connection's presence state, then reply with
+            // the current roster snapshot
+            const [, corrId, state] = frame;
+            const presence = channel["~"].presence;
+            if (!presence || !conn.presenceRoom) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "NOT_FOUND",
+                    "presence is not enabled on this channel",
+                ]);
+                return;
+            }
+            const result = await validate(presence.state, state);
+            if (!result.ok) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "VALIDATION",
+                    "invalid presence state",
+                    result.issues.slice(0, 5),
+                ]);
+                return;
+            }
+            const room = conn.presenceRoom;
+            await backplane.setPresence?.(room, wsi.id, result.value);
+            conn.isPresent = true;
+            // fan the change out to the room (clients diff join vs update by key)
+            channel["~"].publishFrame?.(room, [
+                Frame.PresenceDiff,
+                room,
+                wsi.id,
+                result.value,
+            ]);
+            const members = (await backplane.getPresence?.(room)) ?? {};
+            wsi.sendFrame([Frame.Reply, corrId, { self: wsi.id, members }]);
+            return;
+        }
+        case Frame.PresenceQuery: {
+            const [, corrId] = frame;
+            if (!channel["~"].presence || !conn.presenceRoom) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "NOT_FOUND",
+                    "presence is not enabled on this channel",
+                ]);
+                return;
+            }
+            const members =
+                (await backplane.getPresence?.(conn.presenceRoom)) ?? {};
+            wsi.sendFrame([Frame.Reply, corrId, { self: wsi.id, members }]);
+            return;
+        }
+        case Frame.PresenceClear: {
+            if (conn.presenceRoom && conn.isPresent) {
+                await backplane.clearPresence?.(conn.presenceRoom, wsi.id);
+                channel["~"].publishFrame?.(conn.presenceRoom, [
+                    Frame.PresenceDiff,
+                    conn.presenceRoom,
+                    wsi.id,
+                ]);
+                conn.isPresent = false;
             }
             return;
         }

@@ -16,6 +16,7 @@ import type {
     StreamHandler,
 } from "./types.ts";
 import type { WebsocketDataType } from "./websocket.ts";
+import type { AnyFrame } from "./wire.ts";
 
 export * from "./async-api/index.ts";
 export * from "./websocket.ts";
@@ -33,8 +34,8 @@ export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
 export type AnyChannel = Channel<
-    // biome-ignore format: 12 positional anys
-    any, any, any, any, any, any, any, any, any, any, any, any
+    // biome-ignore format: 13 positional anys
+    any, any, any, any, any, any, any, any, any, any, any, any, any
 >;
 
 /**
@@ -75,7 +76,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
     infer RpcMap,
     infer ServerRpcMap,
     infer StreamMap,
-    infer AuthCredentials
+    infer AuthCredentials,
+    infer PresenceState
 >
     ? {
           query: Query;
@@ -92,6 +94,8 @@ export type InferClient<C extends AnyChannel> = C extends Channel<
           streamMap: StreamMap;
           /** credentials accepted by `client.authenticate(...)` (`.onAuth` input) */
           authCredentials: AuthCredentials;
+          /** per-member presence state shape (`.presence` schema), or `never` */
+          presenceState: PresenceState;
           /** the literal address pattern, e.g. `` `/chat/${string}` `` */
           address: Path extends string ? AddressPattern<Path> : string;
       }
@@ -166,6 +170,9 @@ export class Channel<
     // 12th generic: credentials accepted by `.onAuth` / `client.authenticate`.
     // `undefined` until `.onAuth` is declared (the channel rejects refresh).
     AuthCredentials = undefined,
+    // 13th generic: per-member presence state (`.presence` schema). `undefined`
+    // until `.presence` is declared (the channel has no presence subsystem).
+    PresenceState = undefined,
 > {
     public "~" = {
         client: new Map<
@@ -257,6 +264,24 @@ export class Channel<
                   data: any;
               }) => void)
             | undefined,
+        // adapter-provided: publish a raw wire frame to a topic (presence diffs).
+        // Like globalPublish but for non-Event frames, and never offset/logged.
+        publishFrame: undefined as
+            | ((topic: string, frame: AnyFrame, except?: string[]) => void)
+            | undefined,
+        // presence config (.presence): the member-state schema + a resolver that
+        // derives this connection's presence room from its context (server-side,
+        // so the client never names the room).
+        presence: undefined as
+            | {
+                  state: AnySchema;
+                  room: (ctx: {
+                      request: RequestData<Query, Headers, Params>;
+                      // biome-ignore lint/suspicious/noExplicitAny: accumulated data
+                      data: any;
+                  }) => string;
+              }
+            | undefined,
         // credential-refresh handler (.onAuth): validates fresh credentials and
         // returns context fields to merge on a live connection (token refresh)
         auth: undefined as
@@ -295,7 +320,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].query = query;
 
@@ -317,7 +343,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].headers = headers;
 
@@ -347,7 +374,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].server.set(name, validation);
 
@@ -389,7 +417,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].client.set(name, { handler, validation });
 
@@ -453,7 +482,8 @@ export class Channel<
         },
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].rpc.set(name, {
             input,
@@ -496,7 +526,8 @@ export class Channel<
             [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
         },
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].serverRpc.set(name, { input, output });
 
@@ -552,7 +583,8 @@ export class Channel<
         StreamMap & {
             [k in Name]: { input: InferIn<Input>; output: InferOut<Output> };
         },
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         this["~"].stream.set(name, {
             input,
@@ -723,7 +755,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
         return this as any;
@@ -743,7 +776,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         // @ts-expect-error handler Data variance
         this["~"].beforeUpgrade = handler;
@@ -774,7 +808,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -801,7 +836,8 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        AuthCredentials
+        AuthCredentials,
+        PresenceState
     > {
         // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
         this["~"].derives.push(fn as any);
@@ -859,12 +895,82 @@ export class Channel<
         RpcMap,
         ServerRpcMap,
         StreamMap,
-        InferIn<Creds>
+        InferIn<Creds>,
+        PresenceState
     > {
         this["~"].auth = {
             credentials,
             // biome-ignore lint/suspicious/noExplicitAny: stored type-erased
             handler: handler as any,
+        };
+
+        // biome-ignore lint/suspicious/noExplicitAny: builder return cast
+        return this as any;
+    }
+
+    /**
+     * Enables **typed presence** — a per-room roster of who's connected and their
+     * live state (cursor, status, "typing…"). `state` is the per-member state
+     * schema, typed end-to-end. Each connection belongs to one **presence room**,
+     * derived server-side (so the client never names a room): by default the
+     * connection's concrete address (`/doc/:id` → `#presence:/doc/42`); override
+     * with `options.room` to key it however you like.
+     *
+     * The client drives it with `client.presence.set(state)` / `.subscribe(cb)` /
+     * `.clear()`; join/leave/update diffs ride the normal room fan-out, so it
+     * works across a cluster for free, and a (re)connecting client fetches the
+     * current roster via a snapshot (backed by `backplane.getPresence`).
+     *
+     * ```ts
+     * .presence(z.object({ name: z.string(), typing: z.boolean() }))
+     * // client:
+     * client.presence.set({ name: "Alice", typing: false });
+     * client.presence.subscribe((members) => render(members)); // Map<id, state>
+     * ```
+     */
+    presence<State extends AnySchema>(
+        state: State,
+        options?: {
+            room?: (ctx: {
+                request: RequestData<Query, Headers, Params>;
+                data: Data;
+            }) => string;
+        },
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData,
+        WebsocketServerData,
+        Topics,
+        Path,
+        Params,
+        Data,
+        RpcMap,
+        ServerRpcMap,
+        StreamMap,
+        AuthCredentials,
+        InferOut<State>
+    > {
+        const address = this.address;
+        this["~"].presence = {
+            state,
+            room:
+                // biome-ignore lint/suspicious/noExplicitAny: ctx is type-erased here
+                (options?.room as ((ctx: any) => string) | undefined) ??
+                // default: the connection's concrete address, e.g. `#presence:/doc/42`
+                ((ctx: {
+                    request: RequestData<Query, Headers, Params>;
+                }) => {
+                    const params = (ctx.request.params ?? {}) as Record<
+                        string,
+                        string
+                    >;
+                    const filled = address.replace(
+                        /:([^/]+)/g,
+                        (_m, p: string) => params[p] ?? "",
+                    );
+                    return `#presence:${filled}`;
+                }),
         };
 
         // biome-ignore lint/suspicious/noExplicitAny: builder return cast

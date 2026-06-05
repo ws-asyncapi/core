@@ -31,6 +31,13 @@ export const PROTOCOL_VERSION = 1;
  * StreamStop  [13, streamId]                client→server: cancel (unsubscribe)
  * Auth        [14, corrId, credentials]     client→server: refresh credentials
  *                                           (server replies Reply/Error by corrId)
+ * PresenceSet   [15, corrId, state]         client→server: announce/update my state
+ *                                           (server replies Reply{self,members} by corrId)
+ * PresenceQuery [16, corrId]                client→server: request the current roster
+ *                                           (server replies Reply{self,members} by corrId)
+ * PresenceClear [17]                        client→server: leave presence (stay connected)
+ * PresenceDiff  [18, room, socketId, state?]  server→client: one roster change
+ *                                           (state present = join/update, absent = leave)
  * ```
  */
 export enum Frame {
@@ -69,6 +76,23 @@ export enum Frame {
      * {@link Frame.Error} on rejection — both carried by the same `corrId`.
      */
     Auth = 14,
+    /**
+     * client→server: announce or update this connection's presence state in its
+     * presence room. The server validates it, stores it cluster-wide, fans a
+     * {@link Frame.PresenceDiff} out to the room, and replies with the current
+     * roster snapshot ({@link Frame.Reply} carrying `{ self, members }`).
+     */
+    PresenceSet = 15,
+    /** client→server: request the current roster snapshot (read-only observer);
+     *  answered by a {@link Frame.Reply} carrying `{ self, members }`. */
+    PresenceQuery = 16,
+    /** client→server: leave presence without disconnecting (emits a leave diff). */
+    PresenceClear = 17,
+    /**
+     * server→client: one roster change in a presence room. The 4th element is the
+     * member's new state for a join/update, or **absent** for a leave.
+     */
+    PresenceDiff = 18,
 }
 
 /** Stable error codes carried in an {@link Frame.Error} frame. */
@@ -148,6 +172,28 @@ export type StreamStopFrame = [Frame.StreamStop, number];
  * {@link ReplyFrame} or {@link ErrorFrame} carrying the same `corrId`.
  */
 export type AuthFrame = [Frame.Auth, number, unknown];
+/** Client→server presence state announce/update; `corrId` correlates the reply. */
+export type PresenceSetFrame = [Frame.PresenceSet, number, unknown];
+/** Client→server roster snapshot request; `corrId` correlates the reply. */
+export type PresenceQueryFrame = [Frame.PresenceQuery, number];
+/** Client→server: leave presence (stay connected). */
+export type PresenceClearFrame = [Frame.PresenceClear];
+/**
+ * Server→client roster change. A 4th element (the member's state) means
+ * join/update; its absence means the member left.
+ */
+export type PresenceDiffFrame =
+    | [Frame.PresenceDiff, string, string]
+    | [Frame.PresenceDiff, string, string, unknown];
+
+/** The roster snapshot payload returned in the {@link Frame.Reply} to a
+ *  {@link Frame.PresenceSet} / {@link Frame.PresenceQuery}. */
+export interface PresenceSnapshot {
+    /** this connection's own socket id (so a client can find/exclude itself) */
+    self: string;
+    /** current members: socket id → state */
+    members: Record<string, unknown>;
+}
 
 export type AnyFrame =
     | EventFrame
@@ -164,7 +210,11 @@ export type AnyFrame =
     | StreamEndFrame
     | StreamErrorFrame
     | StreamStopFrame
-    | AuthFrame;
+    | AuthFrame
+    | PresenceSetFrame
+    | PresenceQueryFrame
+    | PresenceClearFrame
+    | PresenceDiffFrame;
 
 // --- Codec -------------------------------------------------------------------
 

@@ -1,5 +1,4 @@
-import type { TSchema } from "@sinclair/typebox";
-import { Type } from "@sinclair/typebox";
+import { type AnySchema, type SchemaIO, toJsonSchema } from "./schema.ts";
 
 export function getPathParams(path: string) {
     return path
@@ -12,8 +11,28 @@ export function toChannelExpression(path: string) {
     return path.replace(/:(\w+)/g, "{$1}");
 }
 
-export function toLibrarySpec(name: string, data: TSchema) {
-    return Type.Tuple([Type.Literal(name), data]);
+/**
+ * Wrap a message's schema in the discriminated tuple the wire + CLI expect:
+ * `[ {const: name}, <payload schema> ]`. Built as a plain draft-07 JSON Schema
+ * (array-form tuple) so any validator — Standard Schema or TypeBox — flows
+ * through {@link toJsonSchema}. `io` picks the input (client-sent) vs output
+ * (server-sent) shape for validators with transforms.
+ */
+export function toLibrarySpec(
+    name: string,
+    data: AnySchema | undefined,
+    io: SchemaIO = "output",
+) {
+    // No schema declared → a "never" payload (`{ not: {} }`), which the CLI reads
+    // as `never`. (Previously this was a TypeBox `Type.Never()` upstream.)
+    const payload = data === undefined ? { not: {} } : toJsonSchema(data, io);
+    return {
+        type: "array",
+        minItems: 2,
+        maxItems: 2,
+        additionalItems: false,
+        items: [{ type: "string", const: name }, payload],
+    };
 }
 
 export function toPascalCase(str: string) {
@@ -25,6 +44,20 @@ export function toPascalCase(str: string) {
 declare module "asyncapi-types" {
     interface OperationObject {
         "x-ws-asyncapi-operation": 1;
+        // marks an operation as a request/response RPC (carries a `reply`)
+        "x-ws-asyncapi-rpc"?: 1;
+        // marks a server→client RPC (action "send" with a `reply`)
+        "x-ws-asyncapi-server-rpc"?: 1;
+        // marks a client→server stream (action "receive"; `reply` = streamed item)
+        "x-ws-asyncapi-stream"?: 1;
+        // declared RPC error codes → message $ref for the error's `data` schema
+        "x-ws-asyncapi-errors"?: Record<string, { $ref: string }>;
+    }
+    interface ChannelObject {
+        // `.onAuth` credentials schema → message $ref (client.authenticate input)
+        "x-ws-asyncapi-auth"?: { $ref: string };
+        // `.presence` per-member state schema → message $ref
+        "x-ws-asyncapi-presence"?: { $ref: string };
     }
 }
 

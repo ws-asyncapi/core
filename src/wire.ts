@@ -1,0 +1,298 @@
+/**
+ * ws-asyncapi wire protocol.
+ *
+ * Every frame is a plain array whose first element is a numeric {@link Frame}
+ * discriminator, so a receiver can branch in O(1) before touching the payload.
+ * Frames stay JSON-serializable so the default {@link jsonCodec} works without
+ * any per-message schema and a binary codec (msgpack) is a drop-in replacement.
+ */
+
+/** Current wire protocol version, exchanged in the Hello/Welcome handshake. */
+export const PROTOCOL_VERSION = 1;
+
+/**
+ * Frame kind discriminator (first element of every wire frame).
+ *
+ * Wire shapes (field names are documentation only — frames are positional):
+ * ```
+ * Event    [0, name, payload, offset?]
+ * Command  [1, name, payload]
+ * Request  [2, name, corrId, payload, idemKey?]
+ * Reply    [3, corrId, payload]
+ * Error    [4, corrId, code, message, data?]
+ * Ping     [5, ts]
+ * Pong     [6, ts]
+ * Hello    [7, sessionId | null, lastOffset | 0, protocolVersion, contractVersion?]
+ * Welcome  [8, sessionId, recovered (0|1), serverOffset]
+ * StreamStart [9, name, streamId, input]   client→server: open a stream
+ * StreamData  [10, streamId, payload]       server→client: one yielded item
+ * StreamEnd   [11, streamId]                server→client: stream completed
+ * StreamError [12, streamId, code, message, data?]  server→client: stream failed
+ * StreamStop  [13, streamId]                client→server: cancel (unsubscribe)
+ * Auth        [14, corrId, credentials]     client→server: refresh credentials
+ *                                           (server replies Reply/Error by corrId)
+ * PresenceSet   [15, corrId, state]         client→server: announce/update my state
+ *                                           (server replies Reply{self,members} by corrId)
+ * PresenceQuery [16, corrId]                client→server: request the current roster
+ *                                           (server replies Reply{self,members} by corrId)
+ * PresenceClear [17]                        client→server: leave presence (stay connected)
+ * PresenceDiff  [18, room, socketId, state?]  server→client: one roster change
+ *                                           (state present = join/update, absent = leave)
+ * HistoryQuery  [19, corrId, room, limit?]  client→server: fetch a room's recent
+ *                                           events (server replies Reply[entries] by corrId)
+ * PresenceUpdate [20, state]                client→server: volatile presence update
+ *                                           (cursors): fire-and-forget, no ack/snapshot
+ * ```
+ */
+export enum Frame {
+    /** server→client, fire-and-forget */
+    Event = 0,
+    /** client→server, fire-and-forget */
+    Command = 1,
+    /** client→server, expects a {@link Frame.Reply} or {@link Frame.Error} */
+    Request = 2,
+    /** server→client, success response to a {@link Frame.Request} */
+    Reply = 3,
+    /** typed error response to a {@link Frame.Request} */
+    Error = 4,
+    /** heartbeat probe */
+    Ping = 5,
+    /** heartbeat acknowledgement */
+    Pong = 6,
+    /** connection-state-recovery handshake (client→server on (re)connect) */
+    Hello = 7,
+    /** handshake reply (server→client): assigns/confirms session id + offset */
+    Welcome = 8,
+    /** client→server: open a typed stream (server replies with StreamData*) */
+    StreamStart = 9,
+    /** server→client: one item yielded by a stream handler */
+    StreamData = 10,
+    /** server→client: a stream completed normally */
+    StreamEnd = 11,
+    /** server→client: a stream failed (typed error) */
+    StreamError = 12,
+    /** client→server: cancel a stream (e.g. the consumer stopped iterating) */
+    StreamStop = 13,
+    /**
+     * client→server: present fresh credentials on a live connection (token
+     * refresh). The server re-runs its `.onAuth` handler and replaces the
+     * connection's context, replying with a {@link Frame.Reply} on success or a
+     * {@link Frame.Error} on rejection — both carried by the same `corrId`.
+     */
+    Auth = 14,
+    /**
+     * client→server: announce or update this connection's presence state in its
+     * presence room. The server validates it, stores it cluster-wide, fans a
+     * {@link Frame.PresenceDiff} out to the room, and replies with the current
+     * roster snapshot ({@link Frame.Reply} carrying `{ self, members }`).
+     */
+    PresenceSet = 15,
+    /** client→server: request the current roster snapshot (read-only observer);
+     *  answered by a {@link Frame.Reply} carrying `{ self, members }`. */
+    PresenceQuery = 16,
+    /** client→server: leave presence without disconnecting (emits a leave diff). */
+    PresenceClear = 17,
+    /**
+     * server→client: one roster change in a presence room. The 4th element is the
+     * member's new state for a join/update, or **absent** for a leave.
+     */
+    PresenceDiff = 18,
+    /**
+     * client→server: fetch a room's retained recent events (per-room history /
+     * rewind). The server replies with a {@link Frame.Reply} carrying an array of
+     * `{ event, data }` entries (only for rooms the socket is subscribed to).
+     */
+    HistoryQuery = 19,
+    /**
+     * client→server: a **volatile** presence update (the cursor hot path).
+     * Unlike {@link Frame.PresenceSet} it is fire-and-forget — no corrId, no ack,
+     * no roster snapshot reply — so high-frequency updates (cursor moves) stay
+     * cheap. Last-write-wins; the server fans a {@link Frame.PresenceDiff} out to
+     * the room. Send {@link Frame.PresenceSet} once first to join the roster.
+     */
+    PresenceUpdate = 20,
+}
+
+/** Stable error codes carried in an {@link Frame.Error} frame. */
+export const ErrorCode = {
+    /** input failed schema validation (raised before the handler runs) */
+    VALIDATION: "VALIDATION",
+    /** no RPC handler registered for the requested name */
+    NOT_FOUND: "NOT_FOUND",
+    /** handler threw / unexpected server failure */
+    INTERNAL: "INTERNAL",
+    /** synthesized client-side when no reply arrives in time (never sent on the wire) */
+    TIMEOUT: "TIMEOUT",
+    /** too many in-flight requests (client) or backpressure (server) */
+    OVERLOADED: "OVERLOADED",
+    /** credentials missing/expired/invalid (e.g. a rejected `.authenticate`) */
+    UNAUTHENTICATED: "UNAUTHENTICATED",
+} as const;
+
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode] | (string & {});
+
+/**
+ * Application-defined WebSocket close codes (4000–4999 range). Used by the
+ * server to reject a connection during the Hello handshake; the resilient client
+ * treats these as *fatal* (it stops reconnecting, since retrying won't fix a
+ * version skew) and rejects `opened` with the close reason.
+ */
+export const CloseCode = {
+    /** client's wire protocol version doesn't match the server's */
+    PROTOCOL_MISMATCH: 4400,
+    /** client's contract hash doesn't match the server's (regenerate client) */
+    CONTRACT_MISMATCH: 4409,
+} as const;
+
+// --- Frame tuple types -------------------------------------------------------
+
+/**
+ * Server→client event. The optional 4th element is the recovery offset, present
+ * only when the active backplane supports connection-state-recovery; the client
+ * tracks the highest offset it has seen and replays missed events from it after
+ * a reconnect (see {@link Frame.Hello}).
+ */
+export type EventFrame =
+    | [Frame.Event, string, unknown]
+    | [Frame.Event, string, unknown, number | string];
+export type CommandFrame = [Frame.Command, string, unknown];
+/**
+ * Client→server RPC. The optional 5th element is an idempotency key: when
+ * present, the server runs the handler once per key and replays the cached
+ * outcome to duplicates (retransmits / retries after reconnect), making the
+ * RPC's effect at-least-once-safe. See {@link import("./idempotency.ts").IdempotencyCache}.
+ */
+export type RequestFrame =
+    | [Frame.Request, string, number, unknown]
+    | [Frame.Request, string, number, unknown, string];
+export type ReplyFrame = [Frame.Reply, number, unknown];
+export type ErrorFrame = [Frame.Error, number, ErrorCode, string, unknown?];
+export type PingFrame = [Frame.Ping, number];
+export type PongFrame = [Frame.Pong, number];
+export type HelloFrame =
+    | [Frame.Hello, string | null, number | string, number]
+    | [Frame.Hello, string | null, number | string, number, string];
+export type WelcomeFrame = [Frame.Welcome, string, 0 | 1, number | string];
+export type StreamStartFrame = [Frame.StreamStart, string, number, unknown];
+export type StreamDataFrame = [Frame.StreamData, number, unknown];
+export type StreamEndFrame = [Frame.StreamEnd, number];
+export type StreamErrorFrame = [
+    Frame.StreamError,
+    number,
+    ErrorCode,
+    string,
+    unknown?,
+];
+export type StreamStopFrame = [Frame.StreamStop, number];
+/**
+ * Client→server credential refresh. The 3rd element is the credentials payload
+ * (validated against the channel's `.onAuth` schema); the server answers with a
+ * {@link ReplyFrame} or {@link ErrorFrame} carrying the same `corrId`.
+ */
+export type AuthFrame = [Frame.Auth, number, unknown];
+/** Client→server presence state announce/update; `corrId` correlates the reply. */
+export type PresenceSetFrame = [Frame.PresenceSet, number, unknown];
+/** Client→server roster snapshot request; `corrId` correlates the reply. */
+export type PresenceQueryFrame = [Frame.PresenceQuery, number];
+/** Client→server: leave presence (stay connected). */
+export type PresenceClearFrame = [Frame.PresenceClear];
+/**
+ * Server→client roster change. A 4th element (the member's state) means
+ * join/update; its absence means the member left.
+ */
+export type PresenceDiffFrame =
+    | [Frame.PresenceDiff, string, string]
+    | [Frame.PresenceDiff, string, string, unknown];
+
+/** Client→server volatile presence update (cursor hot path); no corrId/ack. */
+export type PresenceUpdateFrame = [Frame.PresenceUpdate, unknown];
+/** Client→server room-history request; `corrId` correlates the reply. The
+ *  optional 4th element caps the number of (most-recent) entries returned. */
+export type HistoryQueryFrame =
+    | [Frame.HistoryQuery, number, string]
+    | [Frame.HistoryQuery, number, string, number];
+
+/** One retained event in a room's history (returned by {@link Frame.HistoryQuery}). */
+export interface HistoryEntry {
+    event: string;
+    data: unknown;
+}
+
+/** The roster snapshot payload returned in the {@link Frame.Reply} to a
+ *  {@link Frame.PresenceSet} / {@link Frame.PresenceQuery}. */
+export interface PresenceSnapshot {
+    /** this connection's own socket id (so a client can find/exclude itself) */
+    self: string;
+    /** current members: socket id → state */
+    members: Record<string, unknown>;
+}
+
+export type AnyFrame =
+    | EventFrame
+    | CommandFrame
+    | RequestFrame
+    | ReplyFrame
+    | ErrorFrame
+    | PingFrame
+    | PongFrame
+    | HelloFrame
+    | WelcomeFrame
+    | StreamStartFrame
+    | StreamDataFrame
+    | StreamEndFrame
+    | StreamErrorFrame
+    | StreamStopFrame
+    | AuthFrame
+    | PresenceSetFrame
+    | PresenceQueryFrame
+    | PresenceClearFrame
+    | PresenceDiffFrame
+    | PresenceUpdateFrame
+    | HistoryQueryFrame;
+
+// --- Codec -------------------------------------------------------------------
+
+/**
+ * Serializes wire frames to/from the bytes put on the socket. The codec is the
+ * only component that touches the encoding; everything else works with frame
+ * arrays. The whole cluster (server nodes + clients) must agree on one codec.
+ */
+export interface Codec {
+    /** codec id, surfaced for negotiation/debugging (e.g. "json", "msgpack") */
+    readonly name: string;
+    encode(frame: AnyFrame): string | Uint8Array;
+    decode(raw: string | ArrayBuffer | Uint8Array): AnyFrame;
+}
+
+/** Default codec: compact JSON arrays. */
+export const jsonCodec: Codec = {
+    name: "json",
+    encode: (frame) => JSON.stringify(frame),
+    decode: (raw) => {
+        const text =
+            typeof raw === "string"
+                ? raw
+                : new TextDecoder().decode(
+                      raw instanceof Uint8Array ? raw : new Uint8Array(raw),
+                  );
+        return JSON.parse(text) as AnyFrame;
+    },
+};
+
+// --- Errors ------------------------------------------------------------------
+
+/**
+ * Error surfaced on the client when an RPC fails — either rejected by the
+ * server with an {@link Frame.Error} frame or synthesized locally on timeout.
+ */
+export class RpcError extends Error {
+    readonly code: ErrorCode;
+    readonly data?: unknown;
+
+    constructor(code: ErrorCode, message: string, data?: unknown) {
+        super(message);
+        this.name = "RpcError";
+        this.code = code;
+        this.data = data;
+    }
+}

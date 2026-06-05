@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Type } from "@sinclair/typebox";
+import { z } from "zod";
 import { getAsyncApiDocument } from "../src/async-api/index.ts";
 import { Channel } from "../src/index.ts";
 
@@ -43,8 +43,8 @@ describe("AsyncAPI", () => {
 
     it("Simple channel", () => {
         const channel = new Channel("/test/:id", "test").query(
-            Type.Object({
-                id: Type.String(),
+            z.object({
+                id: z.string(),
             }),
         );
 
@@ -62,10 +62,8 @@ describe("AsyncAPI", () => {
                   "ws": {
                     "bindingVersion": "0.1.0",
                     "query": {
-                      [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
                         "id": {
-                          [Symbol(TypeBox.Kind)]: "String",
                           "type": "string",
                         },
                       },
@@ -81,6 +79,7 @@ describe("AsyncAPI", () => {
                   "id": {},
                 },
                 "title": "test",
+                "x-ws-asyncapi-contract-hash": "a5cf6e6f",
               },
             },
             "components": {},
@@ -99,14 +98,14 @@ describe("AsyncAPI", () => {
     it("Channel with server and client message", () => {
         const channel = new Channel("/test/:id", "test")
             .query(
-                Type.Object({
-                    id: Type.String(),
+                z.object({
+                    id: z.string(),
                 }),
             )
             .serverMessage(
                 "test",
-                Type.Object({
-                    id: Type.String(),
+                z.object({
+                    id: z.string(),
                 }),
             )
             .clientMessage("test-really", (message) => {
@@ -127,10 +126,8 @@ describe("AsyncAPI", () => {
                   "ws": {
                     "bindingVersion": "0.1.0",
                     "query": {
-                      [Symbol(TypeBox.Kind)]: "Object",
                       "properties": {
                         "id": {
-                          [Symbol(TypeBox.Kind)]: "String",
                           "type": "string",
                         },
                       },
@@ -144,16 +141,13 @@ describe("AsyncAPI", () => {
                 "messages": {
                   "TestReallyReceive": {
                     "payload": {
-                      [Symbol(TypeBox.Kind)]: "Tuple",
                       "additionalItems": false,
                       "items": [
                         {
-                          [Symbol(TypeBox.Kind)]: "Literal",
                           "const": "test-really",
                           "type": "string",
                         },
                         {
-                          [Symbol(TypeBox.Kind)]: "Never",
                           "not": {},
                         },
                       ],
@@ -164,19 +158,16 @@ describe("AsyncAPI", () => {
                   },
                   "TestSend": {
                     "payload": {
-                      [Symbol(TypeBox.Kind)]: "Tuple",
                       "additionalItems": false,
                       "items": [
                         {
-                          [Symbol(TypeBox.Kind)]: "Literal",
                           "const": "test",
                           "type": "string",
                         },
                         {
-                          [Symbol(TypeBox.Kind)]: "Object",
+                          "additionalProperties": false,
                           "properties": {
                             "id": {
-                              [Symbol(TypeBox.Kind)]: "String",
                               "type": "string",
                             },
                           },
@@ -196,6 +187,7 @@ describe("AsyncAPI", () => {
                   "id": {},
                 },
                 "title": "test",
+                "x-ws-asyncapi-contract-hash": "21cd1671",
               },
             },
             "components": {},

@@ -25,4 +25,7 @@ export async function publishEvent(
             ? [Frame.Event, type, data, offset]
             : [Frame.Event, type, data];
     await backplane.publish(topic, codec.encode(frame), offset, except);
+    // record per-room history (no-op unless this event name is configured for
+    // retention); runs once, on the publishing node.
+    await backplane.appendHistory?.(topic, type, data);
 }

@@ -192,6 +192,8 @@ export class Channel<
         rpc: new Map<string, RpcDefinition>(),
         serverRpc: new Map<string, ServerRpcDefinition>(),
         stream: new Map<string, StreamDefinition>(),
+        // per-room history retention: event name -> how many to keep (.history)
+        history: new Map<string, number>(),
         // live local sockets on this channel (for server-side admin ops)
         sockets: new Map<string, Connection>(),
         // server↔server event handlers (serverSideEmit)
@@ -975,6 +977,31 @@ export class Channel<
 
         // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
+    }
+
+    /**
+     * Retains recent events of `name` per room (**history / rewind**), so a
+     * (re)connecting client can fetch a backlog with `client.history(room)` —
+     * the chat-backlog / last-N-ticks pattern. Different from
+     * connection-state-recovery (which replays only *your* gap during a brief
+     * blip): history is room-scoped and any subscribed client can read it.
+     *
+     * Call once per event you want retained; `keep` bounds the per-room buffer
+     * (default 100). Retention is in the backplane (in-memory for
+     * `LocalBackplane`); a client can only read history for rooms it is in.
+     *
+     * ```ts
+     * .serverMessage("message", z.object({ text: z.string() }))
+     * .history("message", { keep: 50 })
+     * // client: const recent = await client.history("room:42", { limit: 50 });
+     * ```
+     */
+    history<Name extends keyof WebsocketServerData & string>(
+        name: Name,
+        options?: { keep?: number },
+    ): this {
+        this["~"].history.set(name, options?.keep ?? 100);
+        return this;
     }
 
     /**

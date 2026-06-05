@@ -93,6 +93,22 @@ export interface Backplane {
     /** Current roster of a presence room: socket id → state. */
     getPresence?(room: string): Promise<Record<string, unknown>>;
 
+    // --- per-room history / rewind (optional capability) ---------------------
+    // A backplane that implements these retains recent events per room so a
+    // client can fetch a backlog on demand. Recording happens once on the
+    // publishing node (in `publishEvent`); only event names registered via
+    // `configureHistory` are kept.
+
+    /** Register which event names to retain and how many (event name → keep). */
+    configureHistory?(events: Record<string, number>): void;
+    /** Append an event to a room's history (no-op if the event isn't retained). */
+    appendHistory?(topic: string, event: string, data: unknown): Promise<void>;
+    /** Fetch a room's retained events (most-recent `limit`, or all), in order. */
+    getHistory?(
+        topic: string,
+        limit?: number,
+    ): Promise<Array<{ event: string; data: unknown }>>;
+
     /** Persist a disconnecting connection's recoverable state for `ttlMs`. */
     saveSession?(sessionId: string, state: SessionState): Promise<void>;
     /** Load a reconnecting connection's state, or null if expired/unknown. */
@@ -131,6 +147,10 @@ export class LocalBackplane implements Backplane {
     #socketRooms = new Map<string, Set<string>>();
     // presence: room -> (socketId -> state)
     #presence = new Map<string, Map<string, unknown>>();
+    // history: retained event names (name -> keep), max keep, and room -> entries
+    #historyEvents = new Map<string, number>();
+    #historyCap = 0;
+    #history = new Map<string, Array<{ event: string; data: unknown }>>();
 
     // recovery state
     #recovery: boolean;
@@ -284,6 +304,38 @@ export class LocalBackplane implements Backplane {
 
     async getPresence(room: string): Promise<Record<string, unknown>> {
         return Object.fromEntries(this.#presence.get(room) ?? []);
+    }
+
+    configureHistory(events: Record<string, number>): void {
+        for (const [event, keep] of Object.entries(events)) {
+            this.#historyEvents.set(event, keep);
+            if (keep > this.#historyCap) this.#historyCap = keep;
+        }
+    }
+
+    async appendHistory(
+        topic: string,
+        event: string,
+        data: unknown,
+    ): Promise<void> {
+        if (!this.#historyEvents.has(event)) return;
+        let entries = this.#history.get(topic);
+        if (!entries) {
+            entries = [];
+            this.#history.set(topic, entries);
+        }
+        entries.push({ event, data });
+        // cap the per-room buffer at the largest configured keep
+        if (entries.length > this.#historyCap)
+            entries.splice(0, entries.length - this.#historyCap);
+    }
+
+    async getHistory(
+        topic: string,
+        limit?: number,
+    ): Promise<Array<{ event: string; data: unknown }>> {
+        const entries = this.#history.get(topic) ?? [];
+        return limit != null ? entries.slice(-limit) : entries.slice();
     }
 
     async roomMembers(topic: string): Promise<string[]> {

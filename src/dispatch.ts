@@ -562,6 +562,23 @@ export async function dispatchFrame(
             }
             return;
         }
+        case Frame.HistoryQuery: {
+            // fetch a room's retained events — only for rooms this socket is in
+            const [, corrId, room, limit] = frame;
+            if (typeof room !== "string" || !wsi.isSubscribed(room as never)) {
+                wsi.sendFrame([
+                    Frame.Error,
+                    corrId,
+                    "NOT_FOUND",
+                    "no history available for that room (are you subscribed?)",
+                ]);
+                return;
+            }
+            const entries =
+                (await backplane.getHistory?.(room, limit ?? undefined)) ?? [];
+            wsi.sendFrame([Frame.Reply, corrId, entries]);
+            return;
+        }
         default:
             return;
     }

@@ -38,6 +38,8 @@ export const PROTOCOL_VERSION = 1;
  * PresenceClear [17]                        client→server: leave presence (stay connected)
  * PresenceDiff  [18, room, socketId, state?]  server→client: one roster change
  *                                           (state present = join/update, absent = leave)
+ * HistoryQuery  [19, corrId, room, limit?]  client→server: fetch a room's recent
+ *                                           events (server replies Reply[entries] by corrId)
  * ```
  */
 export enum Frame {
@@ -93,6 +95,12 @@ export enum Frame {
      * member's new state for a join/update, or **absent** for a leave.
      */
     PresenceDiff = 18,
+    /**
+     * client→server: fetch a room's retained recent events (per-room history /
+     * rewind). The server replies with a {@link Frame.Reply} carrying an array of
+     * `{ event, data }` entries (only for rooms the socket is subscribed to).
+     */
+    HistoryQuery = 19,
 }
 
 /** Stable error codes carried in an {@link Frame.Error} frame. */
@@ -186,6 +194,18 @@ export type PresenceDiffFrame =
     | [Frame.PresenceDiff, string, string]
     | [Frame.PresenceDiff, string, string, unknown];
 
+/** Client→server room-history request; `corrId` correlates the reply. The
+ *  optional 4th element caps the number of (most-recent) entries returned. */
+export type HistoryQueryFrame =
+    | [Frame.HistoryQuery, number, string]
+    | [Frame.HistoryQuery, number, string, number];
+
+/** One retained event in a room's history (returned by {@link Frame.HistoryQuery}). */
+export interface HistoryEntry {
+    event: string;
+    data: unknown;
+}
+
 /** The roster snapshot payload returned in the {@link Frame.Reply} to a
  *  {@link Frame.PresenceSet} / {@link Frame.PresenceQuery}. */
 export interface PresenceSnapshot {
@@ -214,7 +234,8 @@ export type AnyFrame =
     | PresenceSetFrame
     | PresenceQueryFrame
     | PresenceClearFrame
-    | PresenceDiffFrame;
+    | PresenceDiffFrame
+    | HistoryQueryFrame;
 
 // --- Codec -------------------------------------------------------------------
 

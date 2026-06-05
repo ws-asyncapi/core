@@ -550,6 +550,25 @@ export async function dispatchFrame(
             wsi.sendFrame([Frame.Reply, corrId, { self: wsi.id, members }]);
             return;
         }
+        case Frame.PresenceUpdate: {
+            // volatile update (cursor hot path): validate, store last-write, fan
+            // a diff out — no ack, no snapshot read/reply. Silently ignored if
+            // presence isn't enabled or the state is invalid (it's fire-and-forget).
+            const presence = channel["~"].presence;
+            if (!presence || !conn.presenceRoom) return;
+            const result = await validate(presence.state, frame[1]);
+            if (!result.ok) return;
+            const room = conn.presenceRoom;
+            await backplane.setPresence?.(room, wsi.id, result.value);
+            conn.isPresent = true;
+            channel["~"].publishFrame?.(room, [
+                Frame.PresenceDiff,
+                room,
+                wsi.id,
+                result.value,
+            ]);
+            return;
+        }
         case Frame.PresenceClear: {
             if (conn.presenceRoom && conn.isPresent) {
                 await backplane.clearPresence?.(conn.presenceRoom, wsi.id);

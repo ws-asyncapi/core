@@ -40,6 +40,8 @@ export const PROTOCOL_VERSION = 1;
  *                                           (state present = join/update, absent = leave)
  * HistoryQuery  [19, corrId, room, limit?]  client→server: fetch a room's recent
  *                                           events (server replies Reply[entries] by corrId)
+ * PresenceUpdate [20, state]                client→server: volatile presence update
+ *                                           (cursors): fire-and-forget, no ack/snapshot
  * ```
  */
 export enum Frame {
@@ -101,6 +103,14 @@ export enum Frame {
      * `{ event, data }` entries (only for rooms the socket is subscribed to).
      */
     HistoryQuery = 19,
+    /**
+     * client→server: a **volatile** presence update (the cursor hot path).
+     * Unlike {@link Frame.PresenceSet} it is fire-and-forget — no corrId, no ack,
+     * no roster snapshot reply — so high-frequency updates (cursor moves) stay
+     * cheap. Last-write-wins; the server fans a {@link Frame.PresenceDiff} out to
+     * the room. Send {@link Frame.PresenceSet} once first to join the roster.
+     */
+    PresenceUpdate = 20,
 }
 
 /** Stable error codes carried in an {@link Frame.Error} frame. */
@@ -194,6 +204,8 @@ export type PresenceDiffFrame =
     | [Frame.PresenceDiff, string, string]
     | [Frame.PresenceDiff, string, string, unknown];
 
+/** Client→server volatile presence update (cursor hot path); no corrId/ack. */
+export type PresenceUpdateFrame = [Frame.PresenceUpdate, unknown];
 /** Client→server room-history request; `corrId` correlates the reply. The
  *  optional 4th element caps the number of (most-recent) entries returned. */
 export type HistoryQueryFrame =
@@ -235,6 +247,7 @@ export type AnyFrame =
     | PresenceQueryFrame
     | PresenceClearFrame
     | PresenceDiffFrame
+    | PresenceUpdateFrame
     | HistoryQueryFrame;
 
 // --- Codec -------------------------------------------------------------------

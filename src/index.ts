@@ -1,6 +1,7 @@
 import type { ChannelObject } from "asyncapi-types";
 import type { NodeCommand } from "./command.ts";
 import { type Connection, perSocketRoom } from "./dispatch.ts";
+import { PLUGIN_NAME } from "./plugin.ts";
 import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
     AuthHandler,
@@ -29,6 +30,7 @@ export * from "./emit.ts";
 export * from "./command.ts";
 export * from "./idempotency.ts";
 export * from "./contract.ts";
+export * from "./plugin.ts";
 export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
@@ -195,6 +197,8 @@ export class Channel<
         history: new Map<string, number>(),
         // live local sockets on this channel (for server-side admin ops)
         sockets: new Map<string, Connection>(),
+        // names of plugins applied via `.use(definePlugin(...))` — for idempotency
+        plugins: new Set<string>(),
         // server↔server event handlers (serverSideEmit)
         serverEvents: new Map<string, (data: unknown) => void>(),
         // adapter-provided: publish a cross-node command on the command topic
@@ -810,6 +814,15 @@ export class Channel<
      * ```
      */
     use<Result>(plugin: (channel: this) => Result): Result {
+        // Plugins tagged via `definePlugin` carry a name and apply at most once
+        // per channel (so a shared sub-plugin used by several plugins runs once).
+        const name = (
+            plugin as Partial<Record<typeof PLUGIN_NAME, string>>
+        )[PLUGIN_NAME];
+        if (name !== undefined) {
+            if (this["~"].plugins.has(name)) return this as unknown as Result;
+            this["~"].plugins.add(name);
+        }
         return plugin(this);
     }
 

@@ -31,6 +31,7 @@ export * from "./command.ts";
 export * from "./idempotency.ts";
 export * from "./contract.ts";
 export * from "./plugin.ts";
+export * from "./server-plugin.ts";
 export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
@@ -231,6 +232,8 @@ export class Channel<
         sockets: new Map<string, Connection>(),
         // names of plugins applied via `.use(definePlugin(...))` — for idempotency
         plugins: new Set<string>(),
+        // server-level plugins (adapter-provided): observe the lifecycle
+        serverPlugins: [] as import("./server-plugin.ts").ServerPlugin[],
         // server↔server event handlers (serverSideEmit)
         serverEvents: new Map<string, (data: unknown) => void>(),
         // adapter-provided: publish a cross-node command on the command topic

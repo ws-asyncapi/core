@@ -788,6 +788,32 @@ export class Channel<
     }
 
     /**
+     * Apply a **plugin** — a function that receives this channel and returns an
+     * extended one. Because every builder method threads the channel's generics,
+     * the plugin's return type *is* the widened channel, so typed context, hooks,
+     * and contract additions a plugin contributes flow straight through. Use it
+     * to package reusable behavior (auth, rate-limit, logging) as an installable,
+     * typed unit.
+     *
+     * ```ts
+     * // reusable plugin (generic over the channel it's applied to)
+     * const withUser = <C extends AnyChannel>(c: C) =>
+     *   c.resolve(async ({ request }) => ({ user: await verify(request.query.token) }));
+     *
+     * // configurable plugin (curried)
+     * const rateLimit = (opts: { max: number }) => <C extends AnyChannel>(c: C) =>
+     *   c.beforeMessage(({ ws }) => { if (over(ws.id, opts)) throw new RpcError("OVERLOADED", "slow down"); });
+     *
+     * const chat = new Channel("/chat/:room", "chat")
+     *   .use(withUser)              // handlers now see `user`, typed
+     *   .use(rateLimit({ max: 100 }));
+     * ```
+     */
+    use<Result>(plugin: (channel: this) => Result): Result {
+        return plugin(this);
+    }
+
+    /**
      * Extend the connection context with typed fields (auth, db handles, the
      * decoded user, ...). Runs once on open; the returned object is merged into
      * `data` and visible to every handler. Chainable — each call widens `data`.

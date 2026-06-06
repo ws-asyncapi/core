@@ -13,6 +13,7 @@ import { type CachedRpc, IdempotencyCache } from "./idempotency.ts";
 import type { AnyChannel } from "./index.ts";
 import type { OutboundRpc } from "./outbound.ts";
 import { validate } from "./schema.ts";
+import { emitServerPlugin } from "./server-plugin.ts";
 import { StreamRegistry } from "./stream.ts";
 import type { RequestData } from "./types.ts";
 import type { WebSocketImplementation } from "./websocket.ts";
@@ -96,6 +97,13 @@ export async function openConnection(
         request: conn.request,
         data,
     });
+    emitServerPlugin(channel["~"].serverPlugins, (p) =>
+        p.onConnection?.({
+            channel,
+            socketId: conn.ws.id,
+            request: conn.request,
+        }),
+    );
 }
 
 /** Run `onClose`, persist the recovery session, and drop the socket from rooms. */
@@ -109,6 +117,9 @@ export async function closeConnection(
         request: conn.request,
         data: conn.data,
     });
+    emitServerPlugin(channel["~"].serverPlugins, (p) =>
+        p.onDisconnect?.({ channel, socketId: conn.ws.id }),
+    );
     // deregister from the channel's socket map
     // biome-ignore lint/suspicious/noExplicitAny: ~ is type-erased
     (channel as any)["~"].sockets.delete(conn.ws.id);
@@ -153,6 +164,15 @@ export async function dispatchFrame(
     const wsi = conn.ws;
     const request = conn.request;
     const data = conn.data ?? {};
+
+    emitServerPlugin(channel["~"].serverPlugins, (p) =>
+        p.onMessage?.({
+            channel,
+            socketId: wsi.id,
+            kind: frame[0] as number,
+            name: typeof frame[1] === "string" ? frame[1] : undefined,
+        }),
+    );
 
     // run per-message middleware into a per-message context copy; throw rejects
     const applyMiddleware = async (type: string, message: unknown) => {
@@ -291,6 +311,9 @@ export async function dispatchFrame(
                     data: ctxData,
                 });
             } catch (error) {
+                emitServerPlugin(channel["~"].serverPlugins, (p) =>
+                    p.onError?.({ channel, socketId: wsi.id, error }),
+                );
                 if (channel["~"].onError)
                     channel["~"].onError({
                         ws: wsi,
@@ -342,6 +365,9 @@ export async function dispatchFrame(
                     });
                     return { ok: true, payload: reply };
                 } catch (error) {
+                    emitServerPlugin(channel["~"].serverPlugins, (p) =>
+                        p.onError?.({ channel, socketId: wsi.id, error }),
+                    );
                     const code: ErrorCode =
                         error instanceof RpcError ? error.code : "INTERNAL";
                     return {

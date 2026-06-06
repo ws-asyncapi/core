@@ -1,43 +1,45 @@
 {
-    "name": "ws-asyncapi",
-    "version": "0.1.0",
-    "homepage": "https://github.com/kravetsone/ws-asyncapi",
-    "readme": "https://github.com/kravetsone/ws-asyncapi",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/kravetsone/ws-asyncapi.git"
+  "name": "ws-asyncapi",
+  "version": "0.1.1",
+  "homepage": "https://github.com/kravetsone/ws-asyncapi",
+  "readme": "https://github.com/kravetsone/ws-asyncapi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kravetsone/ws-asyncapi.git"
+  },
+  "author": {
+    "url": "https://github.com/kravetsone",
+    "name": "kravets"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
-    "author": {
-        "url": "https://github.com/kravetsone",
-        "name": "kravets"
-    },
-    "type": "module",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js",
-            "require": "./dist/index.cjs"
-        },
-        "./wire": {
-            "types": "./dist/wire.d.ts",
-            "import": "./dist/wire.js",
-            "require": "./dist/wire.cjs"
-        }
-    },
-    "devDependencies": {
-        "@biomejs/biome": "^1.9.4",
-        "@types/bun": "^1.2.4",
-        "elysia": "^1.2.24",
-        "pkgroll": "^2.11.2",
-        "typescript": "^5.8.2"
-    },
-    "scripts": {
-        "prepublishOnly": "bun test && bunx pkgroll"
-    },
-    "files": ["dist"],
-    "license": "MIT",
-    "dependencies": {
-        "@standard-schema/spec": "^1.1.0",
-        "asyncapi-types": "^3.0.2"
+    "./wire": {
+      "types": "./dist/wire.d.ts",
+      "import": "./dist/wire.js",
+      "require": "./dist/wire.cjs"
     }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.2.4",
+    "elysia": "^1.2.24",
+    "pkgroll": "^2.11.2",
+    "typescript": "^5.8.2"
+  },
+  "scripts": {
+    "prepublishOnly": "bun test && bunx pkgroll"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "asyncapi-types": "^3.0.2"
+  }
 }

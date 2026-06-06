@@ -1,6 +1,7 @@
 import type { ChannelObject } from "asyncapi-types";
 import type { NodeCommand } from "./command.ts";
 import { type Connection, perSocketRoom } from "./dispatch.ts";
+import { PLUGIN_NAME } from "./plugin.ts";
 import type { AnySchema, InferIn, InferOut } from "./schema.ts";
 import type {
     AuthHandler,
@@ -29,6 +30,8 @@ export * from "./emit.ts";
 export * from "./command.ts";
 export * from "./idempotency.ts";
 export * from "./contract.ts";
+export * from "./plugin.ts";
+export * from "./server-plugin.ts";
 export * from "./stream.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: AnyChannel type
@@ -136,6 +139,38 @@ export interface StreamDefinition {
     handler: StreamHandler<any, any, any, any, any, any, any, any>;
 }
 
+/** Compose two awaited lifecycle hooks (onOpen/onClose): run `a` then `b`. */
+function composeAsyncHook(
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+    a: ((ctx: any) => unknown) | undefined,
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+    b: ((ctx: any) => unknown) | undefined,
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+): ((ctx: any) => Promise<void>) | undefined {
+    if (!a) return b as never;
+    if (!b) return a as never;
+    return async (ctx) => {
+        await a(ctx);
+        await b(ctx);
+    };
+}
+
+/** Compose two sync hooks (onError): run `a` then `b`. */
+function composeSyncHook(
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+    a: ((ctx: any) => unknown) | undefined,
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+    b: ((ctx: any) => unknown) | undefined,
+    // biome-ignore lint/suspicious/noExplicitAny: type-erased hook
+): ((ctx: any) => unknown) | undefined {
+    if (!a) return b;
+    if (!b) return a;
+    return (ctx) => {
+        a(ctx);
+        b(ctx);
+    };
+}
+
 // TODO: maybe use `defineOperation`
 export class Channel<
     Query extends unknown | undefined,
@@ -195,6 +230,10 @@ export class Channel<
         history: new Map<string, number>(),
         // live local sockets on this channel (for server-side admin ops)
         sockets: new Map<string, Connection>(),
+        // names of plugins applied via `.use(definePlugin(...))` — for idempotency
+        plugins: new Set<string>(),
+        // server-level plugins (adapter-provided): observe the lifecycle
+        serverPlugins: [] as import("./server-plugin.ts").ServerPlugin[],
         // server↔server event handlers (serverSideEmit)
         serverEvents: new Map<string, (data: unknown) => void>(),
         // adapter-provided: publish a cross-node command on the command topic
@@ -785,6 +824,128 @@ export class Channel<
 
         // biome-ignore lint/suspicious/noExplicitAny: builder return cast
         return this as any;
+    }
+
+    /**
+     * Apply a **plugin** — a function that receives this channel and returns an
+     * extended one. Because every builder method threads the channel's generics,
+     * the plugin's return type *is* the widened channel, so typed context, hooks,
+     * and contract additions a plugin contributes flow straight through. Use it
+     * to package reusable behavior (auth, rate-limit, logging) as an installable,
+     * typed unit.
+     *
+     * ```ts
+     * // reusable plugin (generic over the channel it's applied to)
+     * const withUser = <C extends AnyChannel>(c: C) =>
+     *   c.resolve(async ({ request }) => ({ user: await verify(request.query.token) }));
+     *
+     * // configurable plugin (curried)
+     * const rateLimit = (opts: { max: number }) => <C extends AnyChannel>(c: C) =>
+     *   c.beforeMessage(({ ws }) => { if (over(ws.id, opts)) throw new RpcError("OVERLOADED", "slow down"); });
+     *
+     * const chat = new Channel("/chat/:room", "chat")
+     *   .use(withUser)              // handlers now see `user`, typed
+     *   .use(rateLimit({ max: 100 }));
+     * ```
+     */
+    // Function plugin (inline / hook-reusable): full typing for inline plugins and
+    // for reusable plugins built only from `this`-returning hooks.
+    use<Result>(plugin: (channel: this) => Result): Result;
+    // Channel plugin (reusable context/contract): a channel built on a base, whose
+    // concrete contributions (client/server events, rpc, server-rpc, streams, and
+    // derived context) are MERGED into this channel — and, because both sides are
+    // concrete, their added types thread through with full inference.
+    use<
+        PluginClient extends WebsocketDataType["client"],
+        PluginServer extends WebsocketDataType["server"],
+        PluginData,
+        PluginRpc extends Record<
+            string,
+            { input: unknown; output: unknown; errors: Record<string, unknown> }
+        >,
+        PluginServerRpc extends Record<
+            string,
+            { input: unknown; output: unknown }
+        >,
+        PluginStream extends Record<
+            string,
+            { input: unknown; output: unknown }
+        >,
+    >(
+        plugin: Channel<
+            // biome-ignore lint/suspicious/noExplicitAny: plugin's own query…
+            any,
+            // biome-ignore lint/suspicious/noExplicitAny: …headers…
+            any,
+            PluginClient,
+            PluginServer,
+            // biome-ignore lint/suspicious/noExplicitAny: …topics…
+            any,
+            // biome-ignore lint/suspicious/noExplicitAny: …path…
+            any,
+            // biome-ignore lint/suspicious/noExplicitAny: …params are the host's
+            any,
+            PluginData,
+            PluginRpc,
+            PluginServerRpc,
+            PluginStream,
+            // biome-ignore lint/suspicious/noExplicitAny: auth — host's kept
+            any,
+            // biome-ignore lint/suspicious/noExplicitAny: presence — host's kept
+            any
+        >,
+    ): Channel<
+        Query,
+        Headers,
+        WebsocketClientData & PluginClient,
+        WebsocketServerData & PluginServer,
+        Topics,
+        Path,
+        Params,
+        Data & PluginData,
+        RpcMap & PluginRpc,
+        ServerRpcMap & PluginServerRpc,
+        StreamMap & PluginStream,
+        AuthCredentials,
+        PresenceState
+    >;
+    // biome-ignore lint/suspicious/noExplicitAny: overload implementation
+    use(plugin: ((channel: this) => unknown) | AnyChannel): any {
+        if (typeof plugin === "function") {
+            // Plugins tagged via `definePlugin` carry a name and apply at most
+            // once per channel (a shared sub-plugin used by several runs once).
+            const name = (
+                plugin as Partial<Record<typeof PLUGIN_NAME, string>>
+            )[PLUGIN_NAME];
+            if (name !== undefined) {
+                if (this["~"].plugins.has(name)) return this;
+                this["~"].plugins.add(name);
+            }
+            return plugin(this);
+        }
+
+        // Channel plugin: merge its contributions into this channel. Accumulating
+        // maps/arrays are combined (plugin's run after the host's); single
+        // lifecycle hooks are composed; presence/auth/query/headers are adopted
+        // only if this channel hasn't set them.
+        const p = plugin["~"];
+        const h = this["~"];
+        for (const [k, v] of p.server) h.server.set(k, v);
+        for (const [k, v] of p.client) h.client.set(k, v);
+        for (const [k, v] of p.rpc) h.rpc.set(k, v);
+        for (const [k, v] of p.serverRpc) h.serverRpc.set(k, v);
+        for (const [k, v] of p.stream) h.stream.set(k, v);
+        for (const [k, v] of p.history) h.history.set(k, v);
+        h.derives.push(...p.derives);
+        h.middlewares.push(...p.middlewares);
+        h.onOpen = composeAsyncHook(h.onOpen, p.onOpen) as typeof h.onOpen;
+        h.onClose = composeAsyncHook(h.onClose, p.onClose) as typeof h.onClose;
+        h.onError = composeSyncHook(h.onError, p.onError) as typeof h.onError;
+        if (!h.presence && p.presence) h.presence = p.presence;
+        if (!h.auth && p.auth) h.auth = p.auth;
+        if (!h.query && p.query) h.query = p.query;
+        if (!h.headers && p.headers) h.headers = p.headers;
+        return this;
     }
 
     /**

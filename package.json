@@ -29,7 +29,8 @@
     "@types/bun": "^1.2.4",
     "elysia": "^1.2.24",
     "pkgroll": "^2.11.2",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "zod": "^4.4.3"
   },
   "scripts": {
     "prepublishOnly": "bun test && bunx pkgroll"
